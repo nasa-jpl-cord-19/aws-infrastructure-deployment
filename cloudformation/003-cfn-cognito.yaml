@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: User pool for simple auth. Need to figure out MFA and api (non-browser) based access.
+
+Resources:
+  userPool:
+    Type: AWS::Cognito::UserPool
+    Properties: 
+      UserPoolName: !Sub "${AWS::StackName}-covid19data-users"
+      AdminCreateUserConfig: 
+        AllowAdminCreateUserOnly: true
+        InviteMessageTemplate:
+          EmailMessage: |
+            Welcome to https://kibana.covid19data.space
+            Your username is {username} and temporary password is {####}.
+          EmailSubject: "Your temporary password for covid19 data kibana"
+      AutoVerifiedAttributes:
+        - email
+      # EnabledMfas:
+      #   - SOFTWARE_TOKEN_MFA
+      EmailConfiguration: 
+        # EmailSendingAccount: COGNITO_DEFAULT
+        EmailSendingAccount: DEVELOPER
+        From: admin@covid19data.space
+        SourceArn: arn:aws:ses:us-east-1:595798017618:identity/admin@covid19data.space
+      # MfaConfiguration: "ON"
+      Policies: 
+        PasswordPolicy:
+          MinimumLength: "12"
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+          TemporaryPasswordValidityDays: "14"
+      Schema: 
+        -
+          AttributeDataType: String
+          Mutable: false
+          Name: email
+          Required: true
+      UsernameAttributes:
+        - email
+
+  userPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: covid19data-users-1
+      UserPoolId: !Ref userPool
+
+Outputs:
+  CognitoUserPoolId:
+    Value: !Ref userPool
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-Cognito-UserPoolId"
+  CognitoUserPoolArn:
+    Value: !GetAtt userPool.Arn
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-Cognito-UserPoolArn"
+  CognitoUserPoolDomain:
+    Value: !Ref userPoolDomain
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-Cognito-UserPoolDomain"

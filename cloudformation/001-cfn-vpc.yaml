@@ -1,0 +1,2186 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Template for setting up NAT'd VPC with some AWS VPC endpoints. Modification required to use outside of us-east-1.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Project Name
+        Parameters:
+          - ProjectName
+      - Label:
+          default: VPC Configuration
+        Parameters:
+          - VpcCidr
+      - Label:
+          default: PUBLIC Subnet Configuration
+        Parameters:
+          - PubSubnet1Cidr
+          - PubSubnet2Cidr
+      - Label:
+          default: PRIVATE Subnet Configuration
+        Parameters:
+          - PrvSubnet1Cidr
+          - PrvSubnet2Cidr
+          - PrvSubnet3Cidr
+          - PrvSubnet4Cidr
+          - PrvSubnet5Cidr
+          - PrvSubnet6Cidr
+      - Label:
+          default: Enabled VPC Endpoints
+        Parameters:
+          - ActivateS3Endpoint
+          - ActivateCloudWatchEndpoint
+          - ActivateCloudFormationEndpoint
+          - ActivateSsmEndpoint
+          - ActivateSqsEndpoint
+          - ActivateSnsEndpoint
+          - ActivateEcrEndpoint
+          - ActivateEcsEndpoint
+          - ActivateKinesisFirehoseEndpoint
+          
+
+
+    ParameterLabels:
+      ProjectName:
+        default: Project Name
+      VpcCidr:
+        default: VPC CIDR
+      PubSubnet1Cidr:
+        default: CIDR for Public Subnet in AZ us-east-1a
+      PubSubnet2Cidr:
+        default: CIDR for Public Subnet in AZ us-east-1f
+      PrvSubnet1Cidr:
+        default: CIDR for Public Subnet in AZ us-east-1a
+      PrvSubnet2Cidr:
+        default: CIDR for Public Subnet in AZ us-east-1b
+      PrvSubnet3Cidr:
+        default: CIDR for Public Subnet in AZ us-east-1c
+      PrvSubnet4Cidr:
+        default: CIDR for Public Subnet in AZ us-east-1d
+      PrvSubnet5Cidr:
+        default: CIDR for Public Subnet in AZ us-east-1e
+      PrvSubnet6Cidr:
+        default: CIDR for Public Subnet in AZ us-east-1f
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: >-
+      Choose a name that will be used consistently throughout all resources
+      provisioned to support this effort.
+
+  VpcCidr:
+    Type: String
+    Description: "The start of the /21 (e.g. 172.16.0.0/21)."
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/21$'
+
+  PubSubnet1Cidr:
+    Type: String
+    Description: "A /24 within the VPC that will contain an IGW."
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/24$'
+
+  PubSubnet2Cidr:
+    Type: String
+    Description: "A /24 within the VPC that will contain an IGW."
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/24$'
+
+  PrvSubnet1Cidr:
+    Type: String
+    Description: "A /24 within the VPC address range."
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/24$'
+
+  PrvSubnet2Cidr:
+    Type: String
+    Description: "A /24 within the VPC address range."
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/24$'
+
+  PrvSubnet3Cidr:
+    Type: String
+    Description: "A /24 within the VPC address range."
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/24$'
+
+  PrvSubnet4Cidr:
+    Type: String
+    Description: "A /24 within the VPC address range."
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/24$'
+
+  PrvSubnet5Cidr:
+    Type: String
+    Description: "A /24 within the VPC address range."
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/24$'
+
+  PrvSubnet6Cidr:
+    Type: String
+    Description: "A /24 within the VPC address range."
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}\/24$'
+
+  ActivateCloudWatchEndpoint:
+    Type: String
+    Default: 'yes'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+    Description: >-
+      Choose yes to enable the VPC Endpoint(s) required for
+      CloudWatch access within an isolated subnet.
+
+  ActivateS3Endpoint:
+    Type: String
+    Default: 'yes'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+    Description: >-
+      Choose yes to enable the VPC Endpoint(s) required for
+      S3 access within an isolated subnet.
+
+  ActivateSsmEndpoint:
+    Type: String
+    Default: 'yes'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+    Description: >-
+      Choose yes to enable the VPC Endpoint(s) required for
+      SSM access within an isolated subnet.
+
+  ActivateCloudFormationEndpoint:
+    Type: String
+    Default: 'yes'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+    Description: >-
+      Choose yes to enable the VPC Endpoint(s) required for
+      CloudFormation access within an isolated subnet, 
+      commonly used in EC2 ECS hosts to register health.
+
+  ActivateKinesisFirehoseEndpoint:
+    Type: String
+    Default: 'no'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+    Description: >-
+      Choose yes to enable the VPC Endpoint(s) required for
+      Kinesis access within an isolated subnet.
+
+  ActivateEcrEndpoint:
+    Type: String
+    Default: 'no'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+    Description: >-
+      Choose yes to enable the VPC Endpoint(s) required for
+      ECR access within an isolated subnet.
+
+  ActivateEcsEndpoint:
+    Type: String
+    Default: 'no'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+    Description: >-
+      Choose yes to enable the VPC Endpoint(s) required for
+      ECS API access within an isolated subnet.
+
+  ActivateSnsEndpoint:
+    Type: String
+    Default: 'no'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+    Description: >-
+      Choose yes to enable the VPC Endpoint(s) required for
+      SNS access within an isolated subnet.
+  ActivateSqsEndpoint:
+    Type: String
+    Default: 'no'
+    AllowedValues:
+      - 'yes'
+      - 'no'
+    Description: >-
+      Choose yes to enable the VPC Endpoint(s) required for
+      SNS access within an isolated subnet.
+
+Conditions:
+  cloudWatchEndpointActivated: !Equals
+    - !Ref ActivateCloudWatchEndpoint
+    - 'yes'
+  kinesisFirehoseEndpointActivated: !Equals
+    - !Ref ActivateKinesisFirehoseEndpoint
+    - 'yes'
+  s3EndpointActivated: !Equals
+    - !Ref ActivateS3Endpoint
+    - 'yes'
+  ecsEndpointActivated: !Equals
+    - !Ref ActivateEcsEndpoint
+    - 'yes'
+  ecrEndpointActivated: !Equals
+    - !Ref ActivateEcrEndpoint
+    - 'yes'
+  snsEndpointActivated: !Equals
+    - !Ref ActivateSnsEndpoint
+    - 'yes'
+  sqsEndpointActivated: !Equals
+    - !Ref ActivateSqsEndpoint
+    - 'yes'
+  ssmEndpointActivated: !Equals
+    - !Ref ActivateSsmEndpoint
+    - 'yes'
+  cfnEndpointActivated: !Equals
+    - !Ref ActivateCloudFormationEndpoint
+    - 'yes'
+
+Resources:
+  privateVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} VPC"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  vpcIgw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} IGW"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  vpcGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    DependsOn:
+      - vpcIgw
+      - privateVpc
+    Properties:
+      InternetGatewayId: !Ref vpcIgw
+      VpcId: !Ref privateVpc
+
+  publicSubnet1:
+    Type: AWS::EC2::Subnet
+    DependsOn:
+      - privateVpc
+    Properties:
+      AvailabilityZone: us-east-1a
+      CidrBlock: !Ref PubSubnet1Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Public Subnet 1"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+      VpcId: !Ref privateVpc
+
+  publicSubnet2:
+    Type: AWS::EC2::Subnet
+    DependsOn:
+      - privateVpc
+    Properties:
+      AvailabilityZone: us-east-1f
+      CidrBlock: !Ref PubSubnet2Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Public Subnet 2"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+      VpcId: !Ref privateVpc
+
+  publicRoute:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - vpcIgw
+      - publicRouteTable
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref vpcIgw
+      RouteTableId: !Ref publicRouteTable
+
+  publicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn:
+      - privateVpc
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Public Route Table"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+      VpcId: !Ref privateVpc
+
+  publicRouteTableAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - publicSubnet1
+      - publicRouteTable
+    Properties:
+      RouteTableId: !Ref publicRouteTable
+      SubnetId: !Ref publicSubnet1
+
+  publicRouteTableAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - publicSubnet2
+      - publicRouteTable
+    Properties:
+      RouteTableId: !Ref publicRouteTable
+      SubnetId: !Ref publicSubnet2
+
+  privateSubnet1:
+    Type: AWS::EC2::Subnet
+    DependsOn:
+      - privateVpc
+    Properties:
+      AvailabilityZone: us-east-1a
+      CidrBlock: !Ref PrvSubnet1Cidr
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private Subnet 1"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  privateSubnet2:
+    Type: AWS::EC2::Subnet
+    DependsOn:
+      - privateVpc
+    Properties:
+      AvailabilityZone: us-east-1b
+      CidrBlock: !Ref PrvSubnet2Cidr
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private Subnet 2"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  privateSubnet3:
+    Type: AWS::EC2::Subnet
+    DependsOn:
+      - privateVpc
+    Properties:
+      AvailabilityZone: us-east-1c
+      CidrBlock: !Ref PrvSubnet3Cidr
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private Subnet 3"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  privateSubnet4:
+    Type: AWS::EC2::Subnet
+    DependsOn:
+      - privateVpc
+    Properties:
+      AvailabilityZone: us-east-1d
+      CidrBlock: !Ref PrvSubnet4Cidr
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private Subnet 4"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  privateSubnet5:
+    Type: AWS::EC2::Subnet
+    DependsOn:
+      - privateVpc
+    Properties:
+      AvailabilityZone: us-east-1e
+      CidrBlock: !Ref PrvSubnet5Cidr
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private Subnet 5"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  privateSubnet6:
+    Type: AWS::EC2::Subnet
+    DependsOn:
+      - privateVpc
+    Properties:
+      AvailabilityZone: us-east-1f
+      CidrBlock: !Ref PrvSubnet6Cidr
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private Subnet 6"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  privateRoute1:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - privateRouteTable1
+      - natGateway1
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref natGateway1
+      RouteTableId: !Ref privateRouteTable1
+
+  privateRoute2:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - privateRouteTable2
+      - natGateway2
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref natGateway2
+      RouteTableId: !Ref privateRouteTable2
+
+  privateRoute3:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - privateRouteTable3
+      - natGateway1
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref natGateway1
+      RouteTableId: !Ref privateRouteTable3
+
+  privateRoute4:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - privateRouteTable4
+      - natGateway2
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref natGateway2
+      RouteTableId: !Ref privateRouteTable4
+
+  privateRoute5:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - privateRouteTable5
+      - natGateway1
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref natGateway1
+      RouteTableId: !Ref privateRouteTable5
+
+  privateRoute6:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - privateRouteTable6
+      - natGateway2
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref natGateway2
+      RouteTableId: !Ref privateRouteTable6
+
+  privateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    DependsOn:
+      - privateVpc
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private Route Table 1"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+      VpcId: !Ref privateVpc
+
+  privateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    DependsOn:
+      - privateVpc
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private Route Table 2"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+      VpcId: !Ref privateVpc
+
+  privateRouteTable3:
+    Type: AWS::EC2::RouteTable
+    DependsOn:
+      - privateVpc
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private Route Table 3"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+      VpcId: !Ref privateVpc
+
+  privateRouteTable4:
+    Type: AWS::EC2::RouteTable
+    DependsOn:
+      - privateVpc
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private Route Table 4"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+      VpcId: !Ref privateVpc
+
+  privateRouteTable5:
+    Type: AWS::EC2::RouteTable
+    DependsOn:
+      - privateVpc
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private Route Table 5"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+      VpcId: !Ref privateVpc
+
+  privateRouteTable6:
+    Type: AWS::EC2::RouteTable
+    DependsOn:
+      - privateVpc
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private Route Table 6"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+      VpcId: !Ref privateVpc
+
+  privateRouteTableAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - privateSubnet1
+      - privateRouteTable1
+    Properties:
+      RouteTableId: !Ref privateRouteTable1
+      SubnetId: !Ref privateSubnet1
+
+  privateRouteTableAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - privateSubnet2
+      - privateRouteTable2
+    Properties:
+      RouteTableId: !Ref privateRouteTable2
+      SubnetId: !Ref privateSubnet2
+
+  privateRouteTableAssoc3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - privateSubnet3
+      - privateRouteTable3
+    Properties:
+      RouteTableId: !Ref privateRouteTable3
+      SubnetId: !Ref privateSubnet3
+
+  privateRouteTableAssoc4:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - privateSubnet4
+      - privateRouteTable2
+    Properties:
+      RouteTableId: !Ref privateRouteTable4
+      SubnetId: !Ref privateSubnet4
+
+  privateRouteTableAssoc5:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - privateSubnet5
+      - privateRouteTable5
+    Properties:
+      RouteTableId: !Ref privateRouteTable5
+      SubnetId: !Ref privateSubnet5
+
+  privateRouteTableAssoc6:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn:
+      - privateSubnet6
+      - privateRouteTable6
+    Properties:
+      RouteTableId: !Ref privateRouteTable6
+      SubnetId: !Ref privateSubnet6
+
+  privateNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Private network ACL"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+      VpcId: !Ref privateVpc
+
+  privateNetAclAssoc1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn:
+      - privateNetworkAcl
+      - privateSubnet1
+    Properties:
+      NetworkAclId: !Ref privateNetworkAcl
+      SubnetId: !Ref privateSubnet1
+
+  privateNetAclAssoc2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn:
+      - privateNetworkAcl
+      - privateSubnet2
+    Properties:
+      NetworkAclId: !Ref privateNetworkAcl
+      SubnetId: !Ref privateSubnet2
+
+  privateNetAclAssoc3:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn:
+      - privateNetworkAcl
+      - privateSubnet3
+    Properties:
+      NetworkAclId: !Ref privateNetworkAcl
+      SubnetId: !Ref privateSubnet3
+
+  privateNetAclAssoc4:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn:
+      - privateNetworkAcl
+      - privateSubnet4
+    Properties:
+      NetworkAclId: !Ref privateNetworkAcl
+      SubnetId: !Ref privateSubnet4
+
+  privateNetAclAssoc5:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn:
+      - privateNetworkAcl
+      - privateSubnet5
+    Properties:
+      NetworkAclId: !Ref privateNetworkAcl
+      SubnetId: !Ref privateSubnet5
+
+  privateNetAclAssoc6:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn:
+      - privateNetworkAcl
+      - privateSubnet6
+    Properties:
+      NetworkAclId: !Ref privateNetworkAcl
+      SubnetId: !Ref privateSubnet6
+
+  privateNetAclInboundEntry100:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Egress: 'false'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '80'
+        To: '80'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '100'
+
+  privateNetAclInboundEntry110:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Egress: 'false'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '443'
+        To: '443'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '110'
+
+  privateNetAclInboundEntry111:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'false'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '9200'
+        To: '9200'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '111'
+
+  privateNetAclInboundEntry112:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'false'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '9300'
+        To: '9300'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '112'
+
+  privateNetAclInboundEntry113:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'false'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '8182'
+        To: '8182'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '113'
+
+  privateNetAclInboundEntry120:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'false'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '22'
+        To: '22'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '120'
+
+  privateNetAclInboundEntry140:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Egress: 'false'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '10000'
+        To: '65535'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '140'
+
+  privateNetAclInboundEntry150:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'false'
+      Icmp:
+        Code: '-1'
+        Type: '-1'
+      NetworkAclId: !Ref privateNetworkAcl
+      Protocol: '1'
+      RuleAction: allow
+      RuleNumber: '150'
+
+  privateNetAclOutboundEntry100:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Egress: 'true'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '80'
+        To: '80'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '100'
+
+  privateNetAclOutboundEntry110:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Egress: 'true'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '443'
+        To: '443'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '110'
+
+  privateNetAclOutboundEntry111:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'true'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '9200'
+        To: '9200'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '111'
+
+  privateNetAclOutboundEntry112:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'true'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '9300'
+        To: '9300'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '112'
+      
+  privateNetAclOutboundEntry113:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'true'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '8182'
+        To: '8182'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '113'
+  # privateNetAclOutboundEntry115:
+  #   Type: AWS::EC2::NetworkAclEntry
+  #   DependsOn:
+  #     - privateNetworkAcl
+  #   Properties:
+  #     CidrBlock: "0.0.0.0/0"
+  #     Egress: 'true'
+  #     NetworkAclId: !Ref privateNetworkAcl
+  #     PortRange:
+  #       From: '21'
+  #       To: '21'
+  #     Protocol: '6'
+  #     RuleAction: allow
+  #     RuleNumber: '115'
+
+  privateNetAclOutboundEntry120:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'true'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '10000'
+        To: '65535'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '120'
+
+  privateNetAclOutboundEntry160:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'true'
+      Icmp:
+        Code: '-1'
+        Type: '-1'
+      NetworkAclId: !Ref privateNetworkAcl
+      Protocol: '1'
+      RuleAction: allow
+      RuleNumber: '160'
+
+  publicNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Public & NAT GW network ACL"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+      VpcId: !Ref privateVpc
+
+  publicNetAclAssoc1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn:
+      - publicNetworkAcl
+      - publicSubnet1
+    Properties:
+      NetworkAclId: !Ref publicNetworkAcl
+      SubnetId: !Ref publicSubnet1
+
+  publicNetAclAssoc2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    DependsOn:
+      - publicNetworkAcl
+      - publicSubnet2
+    Properties:
+      NetworkAclId: !Ref publicNetworkAcl
+      SubnetId: !Ref publicSubnet2
+
+  publicNetAclInboundEntry100:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      # CidrBlock: !Ref VpcCidr
+      CidrBlock: '0.0.0.0/0'
+      Egress: 'false'
+      NetworkAclId: !Ref publicNetworkAcl
+      PortRange:
+        From: '80'
+        To: '80'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '100'
+
+  publicNetAclInboundEntry110:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      # CidrBlock: !Ref VpcCidr
+      CidrBlock: '0.0.0.0/0'
+      Egress: 'false'
+      NetworkAclId: !Ref publicNetworkAcl
+      PortRange:
+        From: '443'
+        To: '443'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '110'
+
+  # publicNetAclInboundEntry115:
+  #   Type: AWS::EC2::NetworkAclEntry
+  #   DependsOn:
+  #     - publicNetworkAcl
+  #   Properties:
+  #     CidrBlock: !Ref VpcCidr
+  #     Egress: 'false'
+  #     NetworkAclId: !Ref publicNetworkAcl
+  #     PortRange:
+  #       From: '21'
+  #       To: '21'
+  #     Protocol: '6'
+  #     RuleAction: allow
+  #     RuleNumber: '115'
+
+  publicNetAclInboundEntry120:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      # todo: lock this down or remove
+      CidrBlock: "0.0.0.0/0"
+      Egress: 'false'
+      NetworkAclId: !Ref publicNetworkAcl
+      PortRange:
+        From: '22'
+        To: '22'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '120'
+
+  publicNetAclInboundEntry140:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Egress: 'false'
+      NetworkAclId: !Ref publicNetworkAcl
+      PortRange:
+        From: '10000'
+        To: '65535'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '140'
+
+  publicNetAclInboundEntry150:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'false'
+      Icmp:
+        Code: '-1'
+        Type: '-1'
+      NetworkAclId: !Ref publicNetworkAcl
+      Protocol: '1'
+      RuleAction: allow
+      RuleNumber: '150'
+
+  publicNetAclOutboundEntry100:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Egress: 'true'
+      NetworkAclId: !Ref publicNetworkAcl
+      PortRange:
+        From: '80'
+        To: '80'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '100'
+
+  publicNetAclOutboundEntry110:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Egress: 'true'
+      NetworkAclId: !Ref publicNetworkAcl
+      PortRange:
+        From: '443'
+        To: '443'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '110'
+
+  publicNetAclOutboundEntry111:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'true'
+      NetworkAclId: !Ref publicNetworkAcl
+      PortRange:
+        From: '9200'
+        To: '9200'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '111'
+
+  publicNetAclOutboundEntry113:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'true'
+      NetworkAclId: !Ref publicNetworkAcl
+      PortRange:
+        From: '8182'
+        To: '8182'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '113'
+      
+  # publicNetAclOutboundEntry120:
+  #   Type: AWS::EC2::NetworkAclEntry
+  #   DependsOn:
+  #     - publicNetworkAcl
+  #   Properties:
+  #     CidrBlock: "0.0.0.0/0"
+  #     Egress: 'true'
+  #     NetworkAclId: !Ref publicNetworkAcl
+  #     PortRange:
+  #       From: '21'
+  #       To: '21'
+  #     Protocol: '6'
+  #     RuleAction: allow
+  #     RuleNumber: '120'
+
+  publicNetAclOutboundEntry140:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      CidrBlock: "0.0.0.0/0"
+      Egress: 'true'
+      NetworkAclId: !Ref publicNetworkAcl
+      PortRange:
+        From: '10000'
+        To: '65535'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '140'
+
+  publicNetAclOutboundEntry152:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'true'
+      NetworkAclId: !Ref publicNetworkAcl
+      PortRange:
+        From: '22'
+        To: '22'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '152'
+
+  publicNetAclOutboundEntry150:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'true'
+      Icmp:
+        Code: '-1'
+        Type: '-1'
+      NetworkAclId: !Ref publicNetworkAcl
+      Protocol: '1'
+      RuleAction: allow
+      RuleNumber: '160'
+
+  s3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: s3EndpointActivated
+    DependsOn:
+      - privateRouteTable1
+      - privateRouteTable2
+      - privateRouteTable3
+      - privateRouteTable4
+      - privateRouteTable5
+      - privateRouteTable6
+      - publicRouteTable
+      - privateVpc
+    Properties:
+      RouteTableIds:
+        - !Ref privateRouteTable1
+        - !Ref privateRouteTable2
+        - !Ref privateRouteTable3
+        - !Ref privateRouteTable4
+        - !Ref privateRouteTable5
+        - !Ref privateRouteTable6
+        - !Ref publicRouteTable
+      VpcId: !Ref privateVpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+  sqsEndpoint1:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: sqsEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.sqs"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt sqsAccessSecurityGroup.GroupId
+
+  sqsClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: sqsEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to sqs users
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} sqs VPC Endpoint Client Access"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  sqsAccessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: sqsEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to sqs vpc endpoint
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Internal sqs VPC Endpoint"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  snsEndpoint1:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: snsEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.sns"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt snsAccessSecurityGroup.GroupId
+
+  snsClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: snsEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to sns users
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} SNS VPC Endpoint Client Access"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  snsAccessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: snsEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to sns vpc endpoint
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Internal sns VPC Endpoint"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  ecrEndpoint1:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: ecrEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.api"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt ecrAccessSecurityGroup.GroupId
+
+  ecrEndpoint2:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: ecrEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.dkr"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt ecrAccessSecurityGroup.GroupId
+
+  ec2EcsHostDefaultSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SG for minimum EC2 ECS functionality
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} SG for minimum EC2 ECS functionality"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  ecrClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: ecrEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to ecr users
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} ECR VPC Endpoint Client Access"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  ecrAccessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: ecrEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to ecr vpc endpoint
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Internal ECR VPC Endpoint"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+  
+  ecrClientAccess1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: ecrEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ecrAccessSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ecrClientSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  ecrClientAccess2:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: ecrEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ecrAccessSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ecrClientSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  ecrClientAccess3:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: ecrEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ecrClientSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ecrAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  ecrClientAccess4:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: ecrEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ecrClientSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ecrAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  ecrClientAccess1a:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: ecrEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ecrAccessSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  ecrClientAccess2a:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: ecrEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ecrAccessSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  ecrClientAccess3a:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: ecrEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ecrAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  ecrClientAccess4a:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: ecrEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ecrAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  ecsEndpoint1:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: ecsEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecs"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt ecsAccessSecurityGroup.GroupId
+
+  ecsEndpoint2:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: ecsEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecs-agent"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt ecsAccessSecurityGroup.GroupId
+
+  ecsEndpoint3:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: ecsEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecs-telemetry"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt ecsAccessSecurityGroup.GroupId
+
+  ecsClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: ecsEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to ecs users
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} ECS VPC Endpoint Client Access"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  ecsAccessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: ecsEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to ecs vpc endpoint
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Internal ECS VPC Endpoint"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  ecsClientAccess1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: ecsEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ecsAccessSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ecsClientSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  ecsClientAccess2:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: ecsEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ecsAccessSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ecsClientSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  ecsClientAccess3:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: ecsEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ecsClientSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ecsAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  ecsClientAccess4:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: ecsEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ecsClientSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ecsAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  ecsClientAccess1a:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: ecsEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ecsAccessSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  ecsClientAccess2a:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: ecsEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ecsAccessSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  ecsClientAccess3a:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: ecsEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ecsAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  ecsClientAccess4a:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: ecsEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ecsAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  cloudformationEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: cfnEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.cloudformation"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt cfnAccessSecurityGroup.GroupId
+
+  cfnClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: cfnEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to cloudfromation users
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} ECS VPC Endpoint Client Access"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  cfnAccessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: cfnEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to cloudformation vpc endpoint
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Internal ECS VPC Endpoint"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  cfnClientAccess1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: cfnEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt cfnAccessSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt cfnClientSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  cfnClientAccess2:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: cfnEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt cfnAccessSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt cfnClientSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  cfnClientAccess3:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: cfnEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt cfnClientSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt cfnAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  cfnClientAccess4:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: cfnEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt cfnClientSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt cfnAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  cfnClientAccess1a:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: cfnEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt cfnAccessSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  cfnClientAccess2a:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: cfnEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt cfnAccessSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  cfnClientAccess3a:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: cfnEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt cfnAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  cfnClientAccess4a:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: cfnEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt cfnAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  ssmEndpoint1:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: ssmEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ssm"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt ssmAccessSecurityGroup.GroupId
+
+  ssmEndpoint2:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: ssmEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ec2messages"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt ssmAccessSecurityGroup.GroupId
+
+  ssmEndpoint3:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: ssmEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ssmmessages"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt ssmAccessSecurityGroup.GroupId
+
+  ssmEndpoint4:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: ssmEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ec2"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt ssmAccessSecurityGroup.GroupId
+
+  ssmAccessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: ssmEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to ssm vpc endpoints
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Internal SSM VPC Endpoint for SSM"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  ssmClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: ssmEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to ssm users
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} SSM VPC Endpoint Client Access"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  ssmClientAccess1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: ssmEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ssmAccessSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ssmClientSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  ssmClientAccess2:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: ssmEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ssmAccessSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ssmClientSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  ssmClientAccess3:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: ssmEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ssmClientSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ssmAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  ssmClientAccess4:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: ssmEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ssmClientSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ssmAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  ssmClientAccess1a:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: ssmEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ssmAccessSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  ssmClientAccess2a:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: ssmEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ssmAccessSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  ssmClientAccess3a:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: ssmEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ssmAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  ssmClientAccess4a:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: ssmEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ssmAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  cloudwatchEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: cloudWatchEndpointActivated
+    Properties:
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.monitoring"
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt cloudwatchAccessSecurityGroup.GroupId
+
+  cloudwatchLogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: cloudWatchEndpointActivated
+    Properties:
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.logs"
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt cloudwatchAccessSecurityGroup.GroupId
+
+  cloudwatchClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: cloudWatchEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to cloudwatch users
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Cloudwatch VPC Endpoint Client Access"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  cloudwatchAccessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: cloudWatchEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to cloudwatch vpc endpoint
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Internal Cloudwatch VPC Endpoint"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  cloudwatchClientAccess1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: cloudWatchEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt cloudwatchAccessSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt cloudwatchClientSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  cloudwatchClientAccess2:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: cloudWatchEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt cloudwatchAccessSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt cloudwatchClientSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  cloudwatchClientAccess3:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: cloudWatchEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt cloudwatchClientSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt cloudwatchAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  cloudwatchClientAccess4:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: cloudWatchEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt cloudwatchClientSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt cloudwatchAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  cloudwatchClientAccess1a:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: cloudWatchEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt cloudwatchAccessSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  cloudwatchClientAccess2a:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: cloudWatchEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt cloudwatchAccessSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  cloudwatchClientAccess3a:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: cloudWatchEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt cloudwatchAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  cloudwatchClientAccess4a:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: cloudWatchEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt cloudwatchAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  kinesisFirehoseEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: kinesisFirehoseEndpointActivated
+    Properties:
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.kinesis-firehose"
+      PrivateDnsEnabled: true
+      VpcId: !Ref privateVpc
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref privateSubnet1
+        - !Ref privateSubnet2
+        - !Ref privateSubnet3
+        - !Ref privateSubnet4
+        - !Ref privateSubnet5
+        - !Ref privateSubnet6
+      SecurityGroupIds:
+        - !GetAtt kinesisFirehoseAccessSecurityGroup.GroupId
+
+  kinesisFirehoseClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: kinesisFirehoseEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to kinesis firehose users
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Kinesis Firehose VPC Endpoint Client Access"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  kinesisFirehoseAccessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: kinesisFirehoseEndpointActivated
+    Properties:
+      GroupDescription: SG assigned to kinesis firehose vpc endpoint
+      VpcId: !Ref privateVpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName} Internal Kinesis Firehose VPC Endpoint"
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  kinesisFirehoseClientAccess1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: kinesisFirehoseEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt kinesisFirehoseAccessSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt kinesisFirehoseClientSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  kinesisFirehoseClientAccess2:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: kinesisFirehoseEndpointActivated
+    Properties:
+      DestinationSecurityGroupId: !GetAtt kinesisFirehoseAccessSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt kinesisFirehoseClientSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  kinesisFirehoseClientAccess3:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: kinesisFirehoseEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt kinesisFirehoseClientSecurityGroup.GroupId
+      FromPort: '80'
+      GroupId: !GetAtt kinesisFirehoseAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '80'
+
+  kinesisFirehoseClientAccess4:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: kinesisFirehoseEndpointActivated
+    Properties:
+      SourceSecurityGroupId: !GetAtt kinesisFirehoseClientSecurityGroup.GroupId
+      FromPort: '443'
+      GroupId: !GetAtt kinesisFirehoseAccessSecurityGroup.GroupId
+      IpProtocol: '6'
+      ToPort: '443'
+
+  natGatewayEip1:
+    Type: AWS::EC2::EIP
+    DependsOn:
+      - vpcGateway
+    Properties:
+      Domain: vpc
+
+  natGatewayEip2:
+    Type: AWS::EC2::EIP
+    DependsOn:
+      - vpcGateway
+    Properties:
+      Domain: vpc
+
+  natGateway1:
+    Type: AWS::EC2::NatGateway
+    DependsOn:
+      - natGatewayEip1
+      - publicSubnet1
+      - vpcGateway
+    Properties:
+      AllocationId: !GetAtt natGatewayEip1.AllocationId
+      SubnetId: !Ref publicSubnet1
+
+  natGateway2:
+    Type: AWS::EC2::NatGateway
+    DependsOn:
+      - natGatewayEip2
+      - publicSubnet2
+      - vpcGateway
+    Properties:
+      AllocationId: !GetAtt natGatewayEip2.AllocationId
+      SubnetId: !Ref publicSubnet2
+
+Outputs:
+  PrivateVpcId:
+    Value: !Ref privateVpc
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateVpcId"
+  PrivateSubnetIds:
+    Value: !Sub "${privateSubnet1},${privateSubnet2},${privateSubnet3},${privateSubnet4},${privateSubnet5},${privateSubnet6}"
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetIds"
+  PublicSubnetIds:
+    Value: !Sub "${publicSubnet1},${publicSubnet2}"
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnetIds"
+  SqsClientSecurityGroup:
+    Value: !GetAtt sqsClientSecurityGroup.GroupId
+    Condition: sqsEndpointActivated
+    Export:
+      Name: !Sub "${AWS::StackName}-SqsClientSecurityGroup"
+  SnsClientSecurityGroup:
+    Value: !GetAtt snsClientSecurityGroup.GroupId
+    Condition: snsEndpointActivated
+    Export:
+      Name: !Sub "${AWS::StackName}-SnsClientSecurityGroup"
+  EcsClientSecurityGroup:
+    Value: !GetAtt ecsClientSecurityGroup.GroupId
+    Condition: ecsEndpointActivated
+    Export:
+      Name: !Sub "${AWS::StackName}-EcsClientSecurityGroup"
+  EcrClientSecurityGroup:
+    Value: !GetAtt ecrClientSecurityGroup.GroupId
+    Condition: ecrEndpointActivated
+    Export:
+      Name: !Sub "${AWS::StackName}-EcrClientSecurityGroup"
+  CloudwatchClientSecurityGroup:
+    Condition: cloudWatchEndpointActivated
+    Value: !GetAtt cloudwatchClientSecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudwatchClientSecurityGroup"
+  KinesisFirehoseClientSecurityGroup:
+    Condition: kinesisFirehoseEndpointActivated
+    Value: !GetAtt kinesisFirehoseClientSecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AWS::StackName}-KinesisFirehoseClientSecurityGroup"
+  SsmClientSecurityGroup:
+    Condition: ssmEndpointActivated
+    Value: !GetAtt ssmClientSecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AWS::StackName}-SsmClientSecurityGroup"
+  CfnClientSecurityGroup:
+    Condition: cfnEndpointActivated
+    Value: !GetAtt cfnClientSecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AWS::StackName}-CfnClientSecurityGroup"
+  Ec2EcsHostDefaultSecurityGroup:
+    Value: !GetAtt ec2EcsHostDefaultSecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AWS::StackName}-Ec2EcsHostDefaultSecurityGroup"

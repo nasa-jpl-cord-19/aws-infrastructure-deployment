@@ -1,0 +1,143 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: General services that need to be available to multiple applications
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: >-
+      Choose a name that will be used consistently throughout all resources
+      provisioned to support this effort.
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+  SslCertificateArn:
+    Type: String
+    Description: "Wildcard ssl cert"
+  Route53HostedZoneId:
+    Type: String
+  DefaultDomain:
+    Type: String
+Resources:
+  deploymentArtifacts:
+    Type: "AWS::S3::Bucket"
+
+  buildDependencies:
+    Type: "AWS::S3::Bucket"
+  
+  crawledDocuments:
+    Type: "AWS::S3::Bucket"
+  
+  openieEcr:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: openie
+
+  fusekiEcr:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: apache-jena-fuseki
+
+  kibanaEcr:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: kibana
+
+  lb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      IpAddressType: ipv4
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref lbSecurityGroup
+        - !ImportValue "prod-vpc-CloudwatchClientSecurityGroup"
+      Subnets:
+        Fn::Split:
+          - ','
+          - !ImportValue prod-vpc-PublicSubnetIds
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  dnsRecordDefault:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !GetAtt lb.DNSName
+        EvaluateTargetHealth: true
+        HostedZoneId: !GetAtt lb.CanonicalHostedZoneID
+      HostedZoneId: !Ref Route53HostedZoneId
+      Name: !Ref DefaultDomain
+      Type: A
+
+  lbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: security group applied to load balancer
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      SecurityGroupIngress:
+        - IpProtocol: 'tcp'
+          CidrIp: '0.0.0.0/0'
+          FromPort: 80
+          ToPort: 80
+        - IpProtocol: 'tcp'
+          CidrIp: '0.0.0.0/0'
+          FromPort: 443
+          ToPort: 443
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  httpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref lb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - RedirectConfig:
+            Protocol: HTTPS
+            StatusCode: HTTP_301
+            Port: 443
+          Type: redirect
+
+  httpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            ContentType: text/plain
+            MessageBody: "not the droids you're looking for"
+            StatusCode: "200"
+      LoadBalancerArn: !Ref lb
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS-1-2-2017-01
+      Certificates:
+        - CertificateArn: !Ref SslCertificateArn
+
+Outputs:
+  LbHostedZoneId:
+    Value: !GetAtt lb.CanonicalHostedZoneID
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-Lb-HostedZoneId"
+  LbDNSName:
+    Value: !GetAtt lb.DNSName
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-Lb-DNSName"
+  LbSecurityGroupId:
+    Value: !GetAtt lbSecurityGroup.GroupId
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-Lb-SecurityGroupId"
+  LbHttpsListener:
+    Value: !Ref httpsListener
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-Lb-HttpsListenerArn"

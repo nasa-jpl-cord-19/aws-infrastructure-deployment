@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Elasticsearch
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: >-
+      Choose a name that will be used consistently throughout all resources
+      provisioned to support this effort.
+
+  ESMasterCount:
+    Type: Number
+    Default: 0
+
+  ESMasterType:
+    Type: String
+    Default: "m5.large.elasticsearch"
+
+  ESVolumeSize:
+    Type: Number
+    Default: 128
+
+  ESVolumeIops:
+    Type: Number
+    Default: 0
+
+  ESVersion:
+    Type: String
+    Default: "7.4"
+
+  ESDataNodeCount:
+    Type: Number
+    Default: 2
+
+  ESDataNodeType:
+    Type: String
+    Default: "m5.large.elasticsearch"
+
+  S3PrefixListId:
+    Type: String
+    Description: Vpc access to S3, obtained with "aws  --profile <your-profile> --region us-east-1 ec2 describe-prefix-lists"
+
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Conditions:
+  HasDedicatedMasterNodes: !Not [!Equals [!Ref ESMasterCount, 0]]
+  HasSingleClusterInstance: !Equals [!Ref ESDataNodeCount, 1]
+  HasProvisionedIops: !Not [!Equals [!Ref ESVolumeIops, 0]]
+
+Resources:
+  ESCluster:
+    Type: "AWS::Elasticsearch::Domain"
+    Properties:
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: '*'
+            Action:
+              - 'es:ESHttpGet'
+              - 'es:ESHttpHead'
+              # Need POST and I cannot use IAM roles for Kibana, go figure.
+              - 'es:ESHttpPost'
+            Resource: !Sub 'arn:${AWS::Partition}:es:${AWS::Region}:${AWS::AccountId}:domain/${AWS::StackName}/*'
+      DomainName: !Ref AWS::StackName
+      EBSOptions:
+        EBSEnabled: true
+        Iops: !Ref ESVolumeIops
+        VolumeSize: !Ref 'ESVolumeSize'
+        VolumeType: !If [HasProvisionedIops, "io1", "gp2"]
+      ElasticsearchVersion: !Ref ESVersion
+      ElasticsearchClusterConfig:
+        DedicatedMasterCount: !If [HasDedicatedMasterNodes, !Ref ESMasterCount, !Ref 'AWS::NoValue']
+        DedicatedMasterEnabled: !If [HasDedicatedMasterNodes, true, false]
+        DedicatedMasterType: !If [HasDedicatedMasterNodes, !Ref ESMasterType, !Ref 'AWS::NoValue']
+        InstanceCount: !Ref ESDataNodeCount
+        InstanceType: !Ref ESDataNodeType
+        ZoneAwarenessEnabled: !If [HasSingleClusterInstance, false, true]
+        ZoneAwarenessConfig:
+          AvailabilityZoneCount: 2
+      EncryptionAtRestOptions:
+        Enabled: true
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+      SnapshotOptions:
+        AutomatedSnapshotStartHour: 8
+      VPCOptions:
+        SubnetIds:
+          - Fn::Select:
+            - 0
+            - Fn::Split:
+              - ','
+              - Fn::ImportValue: prod-vpc-PrivateSubnetIds
+          - Fn::Select:
+            - 5
+            - Fn::Split:
+              - ','
+              - Fn::ImportValue: prod-vpc-PrivateSubnetIds
+        SecurityGroupIds:
+          - !GetAtt ESSecurityGroup.GroupId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  ESSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Make group for ES
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      SecurityGroupEgress:
+        - FromPort: 443
+          ToPort: 443
+          IpProtocol: 'tcp'
+          DestinationPrefixListId: !Ref S3PrefixListId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  ESSecurityGroupAllSelfEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      DestinationSecurityGroupId: !GetAtt ESSecurityGroup.GroupId
+      IpProtocol: '-1'
+      GroupId: !GetAtt ESSecurityGroup.GroupId
+
+  ESSecurityGroupAllSelfIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      SourceSecurityGroupId: !GetAtt ESSecurityGroup.GroupId
+      IpProtocol: '-1'
+      GroupId: !GetAtt ESSecurityGroup.GroupId
+
+Outputs:
+  ESDomainEndpoint:
+    Value: !GetAtt ESCluster.DomainEndpoint
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-ESCluster-DomainEndpoint"
+  ESDomainSgId:
+    Value: !GetAtt ESSecurityGroup.GroupId
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-ESCluster-SecurityGroupId"

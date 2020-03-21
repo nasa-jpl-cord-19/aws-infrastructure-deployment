@@ -1,0 +1,302 @@
+AWSTemplateFormatVersion : '2010-09-09'
+Description: "Apache Jena Fuseki Endpoint"
+
+Parameters:
+  ProjectName:
+    Type: String
+  ImageUri:
+    Type: String
+  ServiceHostName:
+    Type: String
+  Route53HostedZoneId:
+    Type: String
+Resources:
+  logGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${ProjectName}/${AWS::StackName}"
+      RetentionInDays: 14
+
+  ecsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  targetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: "/$/status"
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 5
+      HealthyThresholdCount: 2
+      Port: 8182
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      TargetGroupAttributes:
+        - Key: "stickiness.enabled"
+          Value: "true"
+        - Key: "stickiness.type"
+          Value: "lb_cookie"
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  fargateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: security group applied to containers
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      SecurityGroupIngress:
+        - IpProtocol: 'tcp'
+          FromPort: 8182
+          ToPort: 8182
+          SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  listenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: authenticate-cognito
+          Order: 1
+          AuthenticateCognitoConfig: 
+            OnUnauthenticatedRequest: authenticate
+            Scope: openid
+            SessionCookieName: AWSELBAuthSessionCookie
+            SessionTimeout: 28800
+            UserPoolArn: !ImportValue prod-auth-Cognito-UserPoolArn
+            UserPoolDomain: !ImportValue prod-auth-Cognito-UserPoolDomain
+            UserPoolClientId: !Ref cognitoAppClient
+        - TargetGroupArn: !Ref targetGroup
+          Order: 2
+          Type: forward
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Ref ServiceHostName
+      ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
+      Priority: 2
+
+  taskDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Name: "jena"
+          Essential: true
+          Image: !Ref ImageUri
+          LinuxParameters:
+            Capabilities:
+              Drop: 
+                - "ALL"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref logGroup
+              awslogs-stream-prefix: jena
+          MemoryReservation: 24576
+          PortMappings:
+            - ContainerPort: 8182
+              HostPort: 8182
+              Protocol: tcp
+          Privileged: false
+          ReadonlyRootFilesystem: false
+          User: "35002:35002"
+          Ulimits:
+            - Name: nofile
+              SoftLimit: 65536
+              HardLimit: 65536
+            - Name: memlock
+              SoftLimit: -1
+              HardLimit: -1
+      Cpu: 4096
+      ExecutionRoleArn: !GetAtt taskExecutionRole.Arn
+      Memory: 24576
+      NetworkMode: "awsvpc"
+      RequiresCompatibilities: 
+        - FARGATE
+      TaskRoleArn: !GetAtt taskRole.Arn
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  taskExecutionRole:
+    Type: Custom::JplRole
+    Properties:
+      ServiceToken: !ImportValue Custom::JplRole::ServiceToken
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service: "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/account-managed/"
+      Policies:
+        - PolicyName: "auth_ecr"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Resource: "*"
+                Action:
+                  - "secretsmanager:GetSecretValue"
+                  - "kms:Decrypt"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  taskRole:
+    Type: Custom::JplRole
+    Properties:
+      ServiceToken: !ImportValue Custom::JplRole::ServiceToken
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service: "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/account-managed/"
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  autoScalingRole:
+    Type: Custom::JplRole
+    Properties:
+      ServiceToken: !ImportValue Custom::JplRole::ServiceToken
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service: "application-autoscaling.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/account-managed/"
+      Policies:
+        - PolicyName: service-autoscaling
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "application-autoscaling:*"
+                  - "cloudwatch:DescribeAlarms"
+                  - "cloudwatch:PutMetricAlarm"
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - "ecs:DescribeServices"
+                  - "ecs:UpdateService"
+                Resource: !Ref fargateService
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  fargateService:
+    Type: AWS::ECS::Service
+    Properties:
+      LaunchType: FARGATE
+      Cluster: !Ref ecsCluster
+      SchedulingStrategy: REPLICA
+      DesiredCount: 2
+      TaskDefinition: !Ref taskDef
+      HealthCheckGracePeriodSeconds: 300
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: 
+            - Fn::Select:
+              - 0
+              - Fn::Split:
+                - ','
+                - Fn::ImportValue: prod-vpc-PrivateSubnetIds
+            - Fn::Select:
+              - 5
+              - Fn::Split:
+                - ','
+                - Fn::ImportValue: prod-vpc-PrivateSubnetIds
+          SecurityGroups:
+            - !Ref fargateSecurityGroup
+            - !ImportValue "prod-vpc-EcsClientSecurityGroup"
+            - !ImportValue "prod-vpc-EcrClientSecurityGroup"
+            - !ImportValue "prod-vpc-CloudwatchClientSecurityGroup"
+      LoadBalancers:
+        - TargetGroupArn: !Ref targetGroup
+          ContainerPort: 8182
+          ContainerName: jena
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  autoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 5
+      MinCapacity: 2
+      ResourceId: !Join ["/", [service, !Ref "ecsCluster", !GetAtt [fargateService, Name]]]
+      RoleARN: !GetAtt autoScalingRole.Arn
+      ScalableDimension: "ecs:service:DesiredCount"
+      ServiceNamespace: ecs
+
+  autoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Join ['', [!Ref "ecsCluster", AutoScalingPolicy]]
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref autoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 10
+        ScaleOutCooldown: 5
+        # Keep things at or lower than n% CPU utilization
+        TargetValue: 75
+
+  dnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !ImportValue prod-general-infra-Lb-DNSName
+        EvaluateTargetHealth: true
+        HostedZoneId: !ImportValue prod-general-infra-Lb-HostedZoneId
+      HostedZoneId: !Ref Route53HostedZoneId
+      Name: !Ref ServiceHostName
+      Type: A
+
+  cognitoAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties: 
+      ClientName: !Sub '${AWS::StackName} ALB'
+      ExplicitAuthFlows: 
+        - USER_PASSWORD_AUTH
+      GenerateSecret: True
+      RefreshTokenValidity: 1
+      UserPoolId: !ImportValue prod-auth-Cognito-UserPoolId
+      ReadAttributes: 
+        - email
+      AllowedOAuthFlows: 
+        - code
+      AllowedOAuthScopes: 
+        - openid
+      SupportedIdentityProviders: 
+        - COGNITO
+      AllowedOAuthFlowsUserPoolClient: True
+      CallbackURLs: 
+        - !Sub "https://${ServiceHostName}/oauth2/idpresponse"

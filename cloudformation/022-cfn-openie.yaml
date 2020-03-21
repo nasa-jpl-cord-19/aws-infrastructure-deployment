@@ -1,0 +1,387 @@
+AWSTemplateFormatVersion : '2010-09-09'
+Description: "OpenIE API"
+
+Parameters:
+  ProjectName:
+    Type: String
+  ImageUri:
+    Type: String
+  ServiceHostName:
+    Type: String
+  Route53HostedZoneId:
+    Type: String
+  S3PrefixListId:
+    Type: String
+    Description: Vpc access to S3, obtained with "aws  --profile <your-profile> --region us-east-1 ec2 describe-prefix-lists"
+  EcsAMI:
+    Description: AMI ID
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
+
+Resources:
+  logGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${ProjectName}/${AWS::StackName}"
+      RetentionInDays: 14
+
+  ecsServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: security group applied to containers
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      SecurityGroupIngress:
+        - IpProtocol: 'tcp'
+          FromPort: 8182
+          ToPort: 8182
+          SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+      SecurityGroupEgress:
+        - FromPort: 443
+          ToPort: 443
+          IpProtocol: 'tcp'
+          DestinationPrefixListId: !Ref S3PrefixListId
+        - FromPort: 80
+          ToPort: 80
+          IpProtocol: 'tcp'
+          DestinationPrefixListId: !Ref S3PrefixListId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  listenerRule1:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: authenticate-cognito
+          Order: 1
+          AuthenticateCognitoConfig: 
+            OnUnauthenticatedRequest: authenticate
+            Scope: openid
+            SessionCookieName: AWSELBAuthSessionCookie
+            SessionTimeout: 28800
+            UserPoolArn: !ImportValue prod-auth-Cognito-UserPoolArn
+            UserPoolDomain: !ImportValue prod-auth-Cognito-UserPoolDomain
+            UserPoolClientId: !Ref cognitoAppClient
+        - Type: fixed-response
+          Order: 2
+          FixedResponseConfig:
+            ContentType: text/html
+            MessageBody: |
+              <h1>I need a way to submit content</h1>
+            # MessageBody: |
+            #   <form action="/getExtraction" method="post" enctype="multipart/form-data">
+            #   <textarea></textarea>
+            #   <input type="submit"/>
+            #   </form>
+            StatusCode: "200"
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Ref ServiceHostName
+        - Field: path-pattern
+          PathPatternConfig:
+            Values:
+              - "/"
+      ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
+      Priority: 4
+
+  listenerRule2:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: authenticate-cognito
+          Order: 1
+          AuthenticateCognitoConfig: 
+            OnUnauthenticatedRequest: authenticate
+            Scope: openid
+            SessionCookieName: AWSELBAuthSessionCookie
+            SessionTimeout: 28800
+            UserPoolArn: !ImportValue prod-auth-Cognito-UserPoolArn
+            UserPoolDomain: !ImportValue prod-auth-Cognito-UserPoolDomain
+            UserPoolClientId: !Ref cognitoAppClient
+        - TargetGroupArn: !Ref targetGroup
+          Order: 2
+          Type: forward
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Ref ServiceHostName
+        - Field: path-pattern
+          PathPatternConfig:
+            Values:
+              - "/getExtraction"
+      ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
+      Priority: 3
+
+  taskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /am-taskexecuton-role/
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Security_Boundary_NoIAM"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service: "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "auth_ecr"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Resource: "*"
+                Action:
+                  - "secretsmanager:GetSecretValue"
+                  - "kms:Decrypt"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  taskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /am-task-role/
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Security_Boundary_NoIAM"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service: "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  dnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !ImportValue prod-general-infra-Lb-DNSName
+        EvaluateTargetHealth: true
+        HostedZoneId: !ImportValue prod-general-infra-Lb-HostedZoneId
+      HostedZoneId: !Ref Route53HostedZoneId
+      Name: !Ref ServiceHostName
+      Type: A
+
+  cognitoAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties: 
+      ClientName: !Sub '${AWS::StackName} ALB'
+      ExplicitAuthFlows: 
+        - USER_PASSWORD_AUTH
+      GenerateSecret: True
+      RefreshTokenValidity: 1
+      UserPoolId: !ImportValue prod-auth-Cognito-UserPoolId
+      ReadAttributes: 
+        - email
+      AllowedOAuthFlows: 
+        - code
+      AllowedOAuthScopes: 
+        - openid
+      SupportedIdentityProviders: 
+        - COGNITO
+      AllowedOAuthFlowsUserPoolClient: True
+      CallbackURLs: 
+        - !Sub "https://${ServiceHostName}/oauth2/idpresponse"
+
+  # alb resources
+  targetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: "/"
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 5
+      HealthyThresholdCount: 2
+      Matcher:
+        HttpCode: "404,200"
+      Port: 8182
+      Protocol: HTTP
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+  # ecs cluster resources
+  ecsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  containerInstances:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref EcsAMI
+      InstanceType: m5a.2xlarge
+      IamInstanceProfile: !Ref ecsEC2InstanceProfile
+      SecurityGroups:
+        - !Ref ecsServiceSecurityGroup
+        - !ImportValue "prod-vpc-Ec2EcsHostDefaultSecurityGroup"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          echo ECS_CLUSTER=${ecsCluster} >> /etc/ecs/ecs.config
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ecsAutoScalingGroup --region ${AWS::Region}
+
+  ecsAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - Fn::Select:
+          - 0
+          - Fn::Split:
+            - ','
+            - Fn::ImportValue: prod-vpc-PrivateSubnetIds
+        - Fn::Select:
+          - 5
+          - Fn::Split:
+            - ','
+            - Fn::ImportValue: prod-vpc-PrivateSubnetIds
+      LaunchConfigurationName: !Ref containerInstances
+      MinSize: '1'
+      MaxSize: '4'
+      DesiredCapacity: '2'
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: 'true'
+
+  ecsEC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles: [!Ref 'ecsEC2Role']
+
+  ecsEC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /am-ecs-host/
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Security_Boundary_NoIAM"
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ec2.amazonaws.com]
+            Action: ['sts:AssumeRole']
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      Policies:
+        - PolicyName: ssm-access
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                Resource:
+                  - !Sub "arn:aws:s3:::aws-ssm-${AWS::Region}/*"
+                  - !Sub "arn:aws:s3:::aws-windows-downloads-${AWS::Region}/*"
+                  - !Sub "arn:aws:s3:::amazon-ssm-${AWS::Region}/*"
+                  - !Sub "arn:aws:s3:::amazon-ssm-packages-${AWS::Region}/*"
+                  - !Sub "arn:aws:s3:::${AWS::Region}-birdwatcher-prod/*"
+                  - !Sub "arn:aws:s3:::aws-ssm-document-attachments-${AWS::Region}/*"
+                  - !Sub "arn:aws:s3:::patch-baseline-snapshot-${AWS::Region}/*"
+        - PolicyName: ecs-service
+          PolicyDocument:
+            Statement:
+              # todo fix this garbage policy taken from aws
+              - Effect: Allow
+                Action:
+                  - 'ecs:CreateCluster'
+                  - 'ecs:DeregisterContainerInstance'
+                  - 'ecs:DiscoverPollEndpoint'
+                  - 'ecs:Poll'
+                  - 'ecs:RegisterContainerInstance'
+                  - 'ecs:StartTelemetrySession'
+                  - 'ecs:Submit*'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                  - 'ecr:GetAuthorizationToken'
+                  - 'ecr:BatchGetImage'
+                  - 'ecr:GetDownloadUrlForLayer'
+                Resource: '*'
+  # ecs services
+  taskDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Cpu: 8192
+      ContainerDefinitions:
+        - Name: "openie"
+          Essential: true
+          Image: !Ref ImageUri
+          # Customizing entrypoint to test java params
+          EntryPoint:
+            - "java"
+          Command:
+            - "-Xmx25g"
+            - "-XX:+UseConcMarkSweepGC"
+            - "-jar"
+            - "openie-assembly.jar"
+            - "--httpPort"
+            - "8182"
+          LinuxParameters:
+            Capabilities:
+              Drop: 
+                - "ALL"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref logGroup
+              awslogs-stream-prefix: openie
+          MemoryReservation: 30720
+          PortMappings:
+            - ContainerPort: 8182
+              HostPort: 8182
+              Protocol: tcp
+          Privileged: false
+          ReadonlyRootFilesystem: true
+          User: "35002:35002"
+          Ulimits:
+            - Name: nofile
+              SoftLimit: 65536
+              HardLimit: 65536
+            - Name: memlock
+              SoftLimit: -1
+              HardLimit: -1
+      ExecutionRoleArn: !GetAtt taskExecutionRole.Arn
+      TaskRoleArn: !GetAtt taskRole.Arn
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  ecsService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - ecsAutoScalingGroup
+    Properties:
+      Cluster: !Ref ecsCluster
+      DesiredCount: 1
+      TaskDefinition: !Ref taskDef
+      HealthCheckGracePeriodSeconds: 300
+      PlacementConstraints:
+        - Type: "distinctInstance"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      LoadBalancers:
+        - TargetGroupArn: !Ref targetGroup
+          ContainerPort: 8182
+          ContainerName: openie
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
