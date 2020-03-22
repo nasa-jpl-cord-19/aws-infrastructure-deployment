@@ -42,6 +42,11 @@ Resources:
     Properties:
       RepositoryName: kibana
 
+  openieFrontendEcr:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: openie-frontend
+
   lb:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:

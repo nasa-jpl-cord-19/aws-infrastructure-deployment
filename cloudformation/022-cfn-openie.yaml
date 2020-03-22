@@ -48,45 +48,7 @@ Resources:
         - Key: ProjectName
           Value: !Ref ProjectName
 
-  listenerRule1:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      Actions:
-        - Type: authenticate-cognito
-          Order: 1
-          AuthenticateCognitoConfig: 
-            OnUnauthenticatedRequest: authenticate
-            Scope: openid
-            SessionCookieName: AWSELBAuthSessionCookie
-            SessionTimeout: 28800
-            UserPoolArn: !ImportValue prod-auth-Cognito-UserPoolArn
-            UserPoolDomain: !ImportValue prod-auth-Cognito-UserPoolDomain
-            UserPoolClientId: !Ref cognitoAppClient
-        - Type: fixed-response
-          Order: 2
-          FixedResponseConfig:
-            ContentType: text/html
-            MessageBody: |
-              <h1>I need a way to submit content</h1>
-            # MessageBody: |
-            #   <form action="/getExtraction" method="post" enctype="multipart/form-data">
-            #   <textarea></textarea>
-            #   <input type="submit"/>
-            #   </form>
-            StatusCode: "200"
-      Conditions:
-        - Field: host-header
-          HostHeaderConfig:
-            Values:
-              - !Ref ServiceHostName
-        - Field: path-pattern
-          PathPatternConfig:
-            Values:
-              - "/"
-      ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
-      Priority: 4
-
-  listenerRule2:
+  listenerRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       Actions:
@@ -385,3 +347,12 @@ Resources:
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
+Outputs:
+  CognitoAppClient:
+    Value: !Ref cognitoAppClient
+    Export:
+      Name: !Sub "${AWS::StackName}-CognitoAppClientId"
+  EcsCluster:
+    Value: !Ref ecsCluster
+    Export:
+      Name: !Sub "${AWS::StackName}-EcsCluster"
