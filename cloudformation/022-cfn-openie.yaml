@@ -8,6 +8,8 @@ Parameters:
     Type: String
   ServiceHostName:
     Type: String
+  ServiceName:
+    Type: String
   Route53HostedZoneId:
     Type: String
   S3PrefixListId:
@@ -161,6 +163,7 @@ Resources:
   targetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
+      Name: !Ref ServiceName
       HealthCheckIntervalSeconds: 60
       HealthCheckPath: "/"
       HealthCheckTimeoutSeconds: 5
@@ -331,6 +334,7 @@ Resources:
     DependsOn:
       - ecsAutoScalingGroup
     Properties:
+      ServiceName: !Ref ServiceName
       Cluster: !Ref ecsCluster
       DesiredCount: 1
       TaskDefinition: !Ref taskDef

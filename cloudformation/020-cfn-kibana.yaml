@@ -8,8 +8,13 @@ Parameters:
     Type: String
   ServiceHostName:
     Type: String
+  ServiceName:
+    Type: String
   Route53HostedZoneId:
     Type: String
+  S3PrefixListId:
+    Type: String
+    Description: Vpc access to S3, obtained with "aws  --profile <your-profile> --region us-east-1 ec2 describe-prefix-lists"
 Resources:
   logGroup:
     Type: AWS::Logs::LogGroup
@@ -17,16 +22,11 @@ Resources:
       LogGroupName: !Sub "/ecs/${ProjectName}/${AWS::StackName}"
       RetentionInDays: 14
 
-  ecsCluster:
-    Type: AWS::ECS::Cluster
-    Properties:
-      Tags:
-        - Key: ProjectName
-          Value: !Ref ProjectName
 
   targetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
+      Name: !Ref ServiceName
       HealthCheckIntervalSeconds: 15
       HealthCheckPath: "/api/status"
       HealthCheckTimeoutSeconds: 5
@@ -50,6 +50,15 @@ Resources:
           FromPort: 8182
           ToPort: 8182
           SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+      # SecurityGroupEgress:
+      #   - FromPort: 443
+      #     ToPort: 443
+      #     IpProtocol: 'tcp'
+      #     DestinationPrefixListId: !Ref S3PrefixListId
+      #   - FromPort: 80
+      #     ToPort: 80
+      #     IpProtocol: 'tcp'
+      #     DestinationPrefixListId: !Ref S3PrefixListId
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
@@ -114,7 +123,6 @@ Resources:
               Protocol: tcp
           Privileged: false
           ReadonlyRootFilesystem: false
-          User: "35002:35002"
           Environment:
             - Name: ELASTICSEARCH_HOSTS
               Value:
@@ -136,9 +144,10 @@ Resources:
           Value: !Ref ProjectName
 
   taskExecutionRole:
-    Type: Custom::JplRole
+    Type: AWS::IAM::Role
     Properties:
-      ServiceToken: !ImportValue Custom::JplRole::ServiceToken
+      Path: /am-taskexecuton-role/
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Security_Boundary_NoIAM"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -148,7 +157,6 @@ Resources:
               Service: "ecs-tasks.amazonaws.com"
             Action:
               - "sts:AssumeRole"
-      Path: "/account-managed/"
       Policies:
         - PolicyName: "auth_ecr"
           PolicyDocument:
@@ -166,9 +174,10 @@ Resources:
           Value: !Ref ProjectName
 
   taskRole:
-    Type: Custom::JplRole
+    Type: AWS::IAM::Role
     Properties:
-      ServiceToken: !ImportValue Custom::JplRole::ServiceToken
+      Path: /am-taskexecuton-role/
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Security_Boundary_NoIAM"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -178,15 +187,15 @@ Resources:
               Service: "ecs-tasks.amazonaws.com"
             Action:
               - "sts:AssumeRole"
-      Path: "/account-managed/"
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
 
   autoScalingRole:
-    Type: Custom::JplRole
+    Type: AWS::IAM::Role
     Properties:
-      ServiceToken: !ImportValue Custom::JplRole::ServiceToken
+      Path: /am-taskexecuton-role/
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Security_Boundary_NoIAM"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -196,7 +205,6 @@ Resources:
               Service: "application-autoscaling.amazonaws.com"
             Action:
               - "sts:AssumeRole"
-      Path: "/account-managed/"
       Policies:
         - PolicyName: service-autoscaling
           PolicyDocument:
@@ -220,8 +228,9 @@ Resources:
   fargateService:
     Type: AWS::ECS::Service
     Properties:
+      ServiceName: !Ref ServiceName
       LaunchType: FARGATE
-      Cluster: !Ref ecsCluster
+      Cluster: !ImportValue prod-general-infra-EcsCluster
       SchedulingStrategy: REPLICA
       DesiredCount: 2
       TaskDefinition: !Ref taskDef
@@ -241,9 +250,7 @@ Resources:
                 - Fn::ImportValue: prod-vpc-PrivateSubnetIds
           SecurityGroups:
             - !Ref fargateSecurityGroup
-            - !ImportValue "prod-vpc-EcsClientSecurityGroup"
-            - !ImportValue "prod-vpc-EcrClientSecurityGroup"
-            - !ImportValue "prod-vpc-CloudwatchClientSecurityGroup"
+            - !ImportValue "prod-vpc-Ec2EcsHostDefaultSecurityGroup"
       LoadBalancers:
         - TargetGroupArn: !Ref targetGroup
           ContainerPort: 8182
@@ -257,7 +264,7 @@ Resources:
     Properties:
       MaxCapacity: 5
       MinCapacity: 2
-      ResourceId: !Join ["/", [service, !Ref "ecsCluster", !GetAtt [fargateService, Name]]]
+      ResourceId: !Join ["/", [service, !ImportValue prod-general-infra-EcsCluster, !GetAtt [fargateService, Name]]]
       RoleARN: !GetAtt autoScalingRole.Arn
       ScalableDimension: "ecs:service:DesiredCount"
       ServiceNamespace: ecs
@@ -265,7 +272,7 @@ Resources:
   autoScalingPolicy:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
     Properties:
-      PolicyName: !Join ['', [!Ref "ecsCluster", AutoScalingPolicy]]
+      PolicyName: !Join ['', [!ImportValue prod-general-infra-EcsCluster, AutoScalingPolicy]]
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref autoScalingTarget
       TargetTrackingScalingPolicyConfiguration:

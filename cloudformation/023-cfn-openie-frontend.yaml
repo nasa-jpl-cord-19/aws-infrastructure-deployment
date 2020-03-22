@@ -8,6 +8,8 @@ Parameters:
     Type: String
   ServiceHostName:
     Type: String
+  ServiceName:
+    Type: String
   S3PrefixListId:
     Type: String
     Description: Vpc access to S3, obtained with "aws  --profile <your-profile> --region us-east-1 ec2 describe-prefix-lists"
@@ -21,6 +23,7 @@ Resources:
   targetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
+      Name: !Ref ServiceName
       HealthCheckIntervalSeconds: 10
       HealthCheckPath: "/"
       HealthCheckTimeoutSeconds: 5
@@ -224,6 +227,7 @@ Resources:
   fargateService:
     Type: AWS::ECS::Service
     Properties:
+      ServiceName: !Ref ServiceName
       LaunchType: FARGATE
       Cluster: !ImportValue prod-openie-EcsCluster
       SchedulingStrategy: REPLICA

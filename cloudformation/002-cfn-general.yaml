@@ -47,6 +47,14 @@ Resources:
     Properties:
       RepositoryName: openie-frontend
 
+  ecsCluster:
+    Type: AWS::ECS::Cluster
+    Properties: 
+      ClusterName: covid19-data-services
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
   lb:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -146,3 +154,7 @@ Outputs:
     Export:
       Name:
         !Sub "${AWS::StackName}-Lb-HttpsListenerArn"
+  EcsCluster:
+    Value: !Ref ecsCluster
+    Export:
+      Name: !Sub "${AWS::StackName}-EcsCluster"
