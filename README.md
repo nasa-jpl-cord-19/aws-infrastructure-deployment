@@ -8,7 +8,7 @@ These are the containerized apps referenced in the CloudFormation templates, hos
 
 - [apache jena fuseki running the covid 19 ttl as in memory database](https://github.com/nasa-jpl-cord-19/container-apache-jena-fuseki)
 - openie
-  - the api server
+  - [the api server](https://github.com/nasa-jpl-cord-19/container-openie-standalone)
   - [the ui](https://github.com/nasa-jpl-cord-19/container-openie-frontend)
 - [kibana](https://www.docker.elastic.co/#kibana-7-4-2)
 - [ctakes enabled apache tika](https://github.com/nasa-jpl-cord-19/container-apache-tika-ctakes)
