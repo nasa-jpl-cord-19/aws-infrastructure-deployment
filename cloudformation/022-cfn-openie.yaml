@@ -12,6 +12,8 @@ Parameters:
     Type: String
   Route53HostedZoneId:
     Type: String
+  InternalRoute53HostedZoneId:
+    Type: String
   S3PrefixListId:
     Type: String
     Description: Vpc access to S3, obtained with "aws  --profile <your-profile> --region us-east-1 ec2 describe-prefix-lists"
@@ -37,6 +39,10 @@ Resources:
           FromPort: 8182
           ToPort: 8182
           SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+        - IpProtocol: 'tcp'
+          FromPort: 8182
+          ToPort: 8182
+          SourceSecurityGroupId: !ImportValue prod-general-infra-InternalLb-SecurityGroupId
       SecurityGroupEgress:
         - FromPort: 443
           ToPort: 443
@@ -77,6 +83,21 @@ Resources:
             Values:
               - "/getExtraction"
       ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
+      Priority: 3
+
+  internalListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref internalTargetGroup
+          Order: 1
+          Type: forward
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Sub "${ServiceHostName}.internal"
+      ListenerArn: !ImportValue prod-general-infra-InternalLb-HttpListenerArn
       Priority: 3
 
   taskExecutionRole:
@@ -164,6 +185,24 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: !Ref ServiceName
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: "/"
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 5
+      HealthyThresholdCount: 2
+      Matcher:
+        HttpCode: "404,200"
+      Port: 8182
+      Protocol: HTTP
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  internalTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "internal-${ServiceName}"
       HealthCheckIntervalSeconds: 60
       HealthCheckPath: "/"
       HealthCheckTimeoutSeconds: 5
@@ -345,9 +384,22 @@ Resources:
         - TargetGroupArn: !Ref targetGroup
           ContainerPort: 8182
           ContainerName: openie
+        - TargetGroupArn: !Ref internalTargetGroup
+          ContainerPort: 8182
+          ContainerName: openie
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
+  internalDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !ImportValue prod-general-infra-InternalLb-DNSName
+        EvaluateTargetHealth: true
+        HostedZoneId: !ImportValue prod-general-infra-InternalLb-HostedZoneId
+      HostedZoneId: !Ref InternalRoute53HostedZoneId
+      Name: !Sub "${ServiceHostName}.internal"
+      Type: A
 Outputs:
   CognitoAppClient:
     Value: !Ref cognitoAppClient

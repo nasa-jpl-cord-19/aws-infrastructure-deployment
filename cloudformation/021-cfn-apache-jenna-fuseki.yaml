@@ -12,6 +12,8 @@ Parameters:
     Type: String
   Route53HostedZoneId:
     Type: String
+  InternalRoute53HostedZoneId:
+    Type: String
   S3PrefixListId:
     Type: String
     Description: Vpc access to S3, obtained with "aws  --profile <your-profile> --region us-east-1 ec2 describe-prefix-lists"
@@ -44,6 +46,23 @@ Resources:
         - Key: ProjectName
           Value: !Ref ProjectName
 
+  internalTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "internal-${ServiceName}"
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: "/$/status"
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 5
+      HealthyThresholdCount: 2
+      Port: 8182
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
   fargateSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -54,6 +73,10 @@ Resources:
           FromPort: 8182
           ToPort: 8182
           SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+        - IpProtocol: 'tcp'
+          FromPort: 8182
+          ToPort: 8182
+          SourceSecurityGroupId: !ImportValue prod-general-infra-InternalLb-SecurityGroupId
       SecurityGroupEgress:
         - FromPort: 443
           ToPort: 443
@@ -90,6 +113,21 @@ Resources:
             Values:
               - !Ref ServiceHostName
       ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
+      Priority: 2
+
+  internalListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref internalTargetGroup
+          Order: 1
+          Type: forward
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Sub "${ServiceHostName}.internal"
+      ListenerArn: !ImportValue prod-general-infra-InternalLb-HttpListenerArn
       Priority: 2
 
   taskDef:
@@ -248,6 +286,9 @@ Resources:
         - TargetGroupArn: !Ref targetGroup
           ContainerPort: 8182
           ContainerName: jena
+        - TargetGroupArn: !Ref internalTargetGroup
+          ContainerPort: 8182
+          ContainerName: jena
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
@@ -255,7 +296,7 @@ Resources:
   autoScalingTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
-      MaxCapacity: 6
+      MaxCapacity: 1
       MinCapacity: 1
       ResourceId: !Join ["/", [service, !ImportValue prod-general-infra-EcsCluster, !GetAtt [fargateService, Name]]]
       RoleARN: !GetAtt autoScalingRole.Arn
@@ -285,6 +326,17 @@ Resources:
         HostedZoneId: !ImportValue prod-general-infra-Lb-HostedZoneId
       HostedZoneId: !Ref Route53HostedZoneId
       Name: !Ref ServiceHostName
+      Type: A
+
+  internalDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !ImportValue prod-general-infra-InternalLb-DNSName
+        EvaluateTargetHealth: true
+        HostedZoneId: !ImportValue prod-general-infra-InternalLb-HostedZoneId
+      HostedZoneId: !Ref InternalRoute53HostedZoneId
+      Name: !Sub "${ServiceHostName}.internal"
       Type: A
 
   cognitoAppClient:

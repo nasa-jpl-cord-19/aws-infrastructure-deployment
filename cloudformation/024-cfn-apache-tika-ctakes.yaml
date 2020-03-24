@@ -57,7 +57,7 @@ Resources:
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
-          
+
   fargateSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -68,7 +68,6 @@ Resources:
           FromPort: 8182
           ToPort: 8182
           SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
-      SecurityGroupIngress:
         - IpProtocol: 'tcp'
           FromPort: 8182
           ToPort: 8182
