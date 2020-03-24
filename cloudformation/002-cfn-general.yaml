@@ -77,6 +77,30 @@ Resources:
         - Key: ProjectName
           Value: !Ref ProjectName
 
+  internalLb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      IpAddressType: ipv4
+      Scheme: internal
+      SecurityGroups:
+        - !Ref internalLbSecurityGroup
+        - !ImportValue "prod-vpc-CloudwatchClientSecurityGroup"
+      Subnets:
+        - Fn::Select:
+          - 0
+          - Fn::Split:
+            - ','
+            - Fn::ImportValue: prod-vpc-PrivateSubnetIds
+        - Fn::Select:
+          - 5
+          - Fn::Split:
+            - ','
+            - Fn::ImportValue: prod-vpc-PrivateSubnetIds
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
   dnsRecordDefault:
     Type: AWS::Route53::RecordSet
     Properties:
@@ -87,6 +111,27 @@ Resources:
       HostedZoneId: !Ref Route53HostedZoneId
       Name: !Ref DefaultDomain
       Type: A
+
+  internalLbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: security group applied to load balancer for internal access
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      SecurityGroupIngress:
+        - IpProtocol: 'tcp'
+          CidrIp: '0.0.0.0/0'
+          FromPort: 80
+          ToPort: 80
+        - IpProtocol: 'tcp'
+          CidrIp: '0.0.0.0/0'
+          FromPort: 443
+          ToPort: 443
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: '0.0.0.0/0'
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
 
   lbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -138,6 +183,19 @@ Resources:
       Certificates:
         - CertificateArn: !Ref SslCertificateArn
 
+  internalHttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            ContentType: text/plain
+            MessageBody: "not the droids you're looking for, internally"
+            StatusCode: "200"
+      LoadBalancerArn: !Ref internalLb
+      Port: 80
+      Protocol: HTTP
+
 Outputs:
   LbHostedZoneId:
     Value: !GetAtt lb.CanonicalHostedZoneID
@@ -159,6 +217,26 @@ Outputs:
     Export:
       Name:
         !Sub "${AWS::StackName}-Lb-HttpsListenerArn"
+  InternalLbHostedZoneId:
+    Value: !GetAtt internalLb.CanonicalHostedZoneID
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-InternalLb-HostedZoneId"
+  InternalLbDNSName:
+    Value: !GetAtt internalLb.DNSName
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-InternalLb-DNSName"
+  InternalLbSecurityGroupId:
+    Value: !GetAtt internalLbSecurityGroup.GroupId
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-InternalLb-SecurityGroupId"
+  InternalLbHttpListener:
+    Value: !Ref internalHttpListener
+    Export:
+      Name:
+        !Sub "${AWS::StackName}-InternalLb-HttpListenerArn"
   EcsCluster:
     Value: !Ref ecsCluster
     Export:

@@ -1,0 +1,165 @@
+AWSTemplateFormatVersion : '2010-09-09'
+Description: "Temporary server running jupyter hub until I get cognito programmatic auth figured out."
+
+Parameters:
+  ProjectName:
+    Type: String
+
+  S3PrefixListId:
+    Type: String
+    Description: Vpc access to S3, obtained with "aws  --profile <your-profile> --region us-east-1 ec2 describe-prefix-lists"
+
+  BastionHostName:
+    Type: String
+
+  SshCaKey:
+    Type: String
+
+  Route53HostedZoneId:
+    Type: String
+
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Resources:
+
+  bastionInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref bastionInstanceRole
+
+  bastionInstanceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ec2.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /am-instance/
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Security_Boundary_NoIAM"
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      Policies:
+        - PolicyName: ssm-access
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                Resource:
+                  - !Sub "arn:aws:s3:::aws-ssm-${AWS::Region}/*"
+                  - !Sub "arn:aws:s3:::aws-windows-downloads-${AWS::Region}/*"
+                  - !Sub "arn:aws:s3:::amazon-ssm-${AWS::Region}/*"
+                  - !Sub "arn:aws:s3:::amazon-ssm-packages-${AWS::Region}/*"
+                  - !Sub "arn:aws:s3:::${AWS::Region}-birdwatcher-prod/*"
+                  - !Sub "arn:aws:s3:::aws-ssm-document-attachments-${AWS::Region}/*"
+                  - !Sub "arn:aws:s3:::patch-baseline-snapshot-${AWS::Region}/*"
+
+  bastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to the public bastion host
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: '22'
+          ToPort: '22'
+      SecurityGroupEgress:
+        - FromPort: 443
+          ToPort: 443
+          IpProtocol: 'tcp'
+          CidrIp: '0.0.0.0/0'
+        - FromPort: 80
+          ToPort: 80
+          IpProtocol: 'tcp'
+          CidrIp: '0.0.0.0/0'
+        - FromPort: 443
+          ToPort: 443
+          IpProtocol: 'tcp'
+          DestinationPrefixListId: !Ref S3PrefixListId
+        - FromPort: 80
+          ToPort: 80
+          IpProtocol: 'tcp'
+          DestinationPrefixListId: !Ref S3PrefixListId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  bastionToEsIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Ingress from the fargate kibana host
+      GroupId: !ImportValue prod-elastic-ESCluster-SecurityGroupId
+      IpProtocol: 6
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !GetAtt bastionSecurityGroup.GroupId
+
+  bastionHost:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: us-east-1a
+      CreditSpecification: 
+        CPUCredits: standard
+      ImageId: !Ref LatestAmiId
+      InstanceType: "t3a.medium"
+      IamInstanceProfile: !Ref bastionInstanceProfile
+      NetworkInterfaces:
+        - NetworkInterfaceId: !Ref bastionControlXface
+          DeviceIndex: 0
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          echo "${SshCaKey}" >> /etc/ssh/ca.pub
+          echo "TrustedUserCAKeys /etc/ssh/ca.pub" >> /etc/ssh/sshd_config
+          systemctl restart sshd
+          amazon-linux-extras install -y docker
+          systemctl enable docker
+          systemctl enable docker
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  bastionHostEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  bastionAssociateControlPort:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt bastionHostEip.AllocationId
+      NetworkInterfaceId: !Ref bastionControlXface
+
+  bastionControlXface:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId:
+        Fn::Select:
+          - 0
+          - Fn::Split:
+            - ','
+            - Fn::ImportValue: prod-vpc-PublicSubnetIds
+      Description: Interface for controlling traffic such as SSH
+      GroupSet: 
+        - !GetAtt bastionSecurityGroup.GroupId
+        - !ImportValue prod-vpc-SsmClientSecurityGroup
+
+  dnsRecordBastion:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref Route53HostedZoneId
+      Name: !Ref BastionHostName
+      ResourceRecords:
+        - !GetAtt bastionHost.PublicIp
+      TTL: "60"
+      Type: A

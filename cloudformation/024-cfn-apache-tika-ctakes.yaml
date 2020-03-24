@@ -12,6 +12,8 @@ Parameters:
     Type: String
   Route53HostedZoneId:
     Type: String
+  InternalRoute53HostedZoneId:
+    Type: String
   S3PrefixListId:
     Type: String
     Description: Vpc access to S3, obtained with "aws  --profile <your-profile> --region us-east-1 ec2 describe-prefix-lists"
@@ -39,6 +41,23 @@ Resources:
         - Key: ProjectName
           Value: !Ref ProjectName
 
+  internalTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "internal-${ServiceName}"
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: "/version"
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 5
+      HealthyThresholdCount: 2
+      Port: 8182
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+          
   fargateSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -49,6 +68,11 @@ Resources:
           FromPort: 8182
           ToPort: 8182
           SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+      SecurityGroupIngress:
+        - IpProtocol: 'tcp'
+          FromPort: 8182
+          ToPort: 8182
+          SourceSecurityGroupId: !ImportValue prod-general-infra-InternalLb-SecurityGroupId
       SecurityGroupEgress:
         # I guess this thing needs to communicate with other apis
         - FromPort: 443
@@ -95,6 +119,21 @@ Resources:
             Values:
               - !Ref ServiceHostName
       ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
+      Priority: 5
+
+  internalListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref internalTargetGroup
+          Order: 1
+          Type: forward
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Sub "${ServiceHostName}.internal"
+      ListenerArn: !ImportValue prod-general-infra-InternalLb-HttpListenerArn
       Priority: 5
 
   taskDef:
@@ -256,6 +295,9 @@ Resources:
         - TargetGroupArn: !Ref targetGroup
           ContainerPort: 8182
           ContainerName: tika
+        - TargetGroupArn: !Ref internalTargetGroup
+          ContainerPort: 8182
+          ContainerName: tika
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
@@ -295,6 +337,17 @@ Resources:
       Name: !Ref ServiceHostName
       Type: A
 
+  internalDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !ImportValue prod-general-infra-InternalLb-DNSName
+        EvaluateTargetHealth: true
+        HostedZoneId: !ImportValue prod-general-infra-InternalLb-HostedZoneId
+      HostedZoneId: !Ref InternalRoute53HostedZoneId
+      Name: !Sub "${ServiceHostName}.internal"
+      Type: A
+
   cognitoAppClient:
     Type: AWS::Cognito::UserPoolClient
     Properties: 
@@ -315,3 +368,9 @@ Resources:
       AllowedOAuthFlowsUserPoolClient: True
       CallbackURLs: 
         - !Sub "https://${ServiceHostName}/oauth2/idpresponse"
+
+  # cognitoResourceServer:
+  #   Type: AWS::Cognito::UserPoolResourceServer
+  #   Properties:
+  #     Identifier: !Sub "https://${ServiceHostName}"
+  #     Name: !Ref ServiceName
