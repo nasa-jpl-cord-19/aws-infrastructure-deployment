@@ -1,14 +1,14 @@
 AWSTemplateFormatVersion : '2010-09-09'
-Description: "Kibana Endpoint"
+Description: "Apache Tika CTAKES Endpoint"
 
 Parameters:
   ProjectName:
     Type: String
   ImageUri:
     Type: String
-  ServiceHostName:
-    Type: String
   ServiceName:
+    Type: String
+  ServiceHostName:
     Type: String
   Route53HostedZoneId:
     Type: String
@@ -22,15 +22,14 @@ Resources:
       LogGroupName: !Sub "/ecs/${ProjectName}/${AWS::StackName}"
       RetentionInDays: 14
 
-
   targetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: !Ref ServiceName
-      HealthCheckIntervalSeconds: 15
-      HealthCheckPath: "/api/status"
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: "/version"
       HealthCheckTimeoutSeconds: 5
-      UnhealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
       HealthyThresholdCount: 2
       Port: 8182
       Protocol: HTTP
@@ -50,31 +49,30 @@ Resources:
           FromPort: 8182
           ToPort: 8182
           SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
-      # SecurityGroupEgress:
-      #   - FromPort: 443
-      #     ToPort: 443
-      #     IpProtocol: 'tcp'
-      #     DestinationPrefixListId: !Ref S3PrefixListId
-      #   - FromPort: 80
-      #     ToPort: 80
-      #     IpProtocol: 'tcp'
-      #     DestinationPrefixListId: !Ref S3PrefixListId
+      SecurityGroupEgress:
+        # I guess this thing needs to communicate with other apis
+        - FromPort: 443
+          ToPort: 443
+          IpProtocol: 'tcp'
+          CidrIp: '0.0.0.0/0'
+        - FromPort: 80
+          ToPort: 80
+          IpProtocol: 'tcp'
+          CidrIp: '0.0.0.0/0'
+        # Access to s3
+        - FromPort: 443
+          ToPort: 443
+          IpProtocol: 'tcp'
+          DestinationPrefixListId: !Ref S3PrefixListId
+        - FromPort: 80
+          ToPort: 80
+          IpProtocol: 'tcp'
+          DestinationPrefixListId: !Ref S3PrefixListId
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
 
-
-  fargateToEsIngress:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-      Description: Ingress from the fargate kibana host
-      GroupId: !ImportValue prod-elastic-ESCluster-SecurityGroupId
-      IpProtocol: 6
-      FromPort: 443
-      ToPort: 443
-      SourceSecurityGroupId: !GetAtt fargateSecurityGroup.GroupId
-
-  kibanaListenerRule:
+  listenerRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       Actions:
@@ -97,13 +95,16 @@ Resources:
             Values:
               - !Ref ServiceHostName
       ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
-      Priority: 1
+      Priority: 5
 
   taskDef:
     Type: AWS::ECS::TaskDefinition
     Properties:
       ContainerDefinitions:
-        - Name: "kibana"
+        - Name: "tika"
+          Command: 
+            - "--port"
+            - "8182"
           Essential: true
           Image: !Ref ImageUri
           LinuxParameters:
@@ -115,26 +116,25 @@ Resources:
             Options:
               awslogs-region: !Ref AWS::Region
               awslogs-group: !Ref logGroup
-              awslogs-stream-prefix: kibana
-          MemoryReservation: 2048
+              awslogs-stream-prefix: tika
+          MemoryReservation: 16384
           PortMappings:
             - ContainerPort: 8182
               HostPort: 8182
               Protocol: tcp
           Privileged: false
-          ReadonlyRootFilesystem: false
-          Environment:
-            - Name: ELASTICSEARCH_HOSTS
-              Value:
-                Fn::Sub:
-                  - "https://${esHost}:443"
-                  - esHost: 
-                      Fn::ImportValue: prod-elastic-ESCluster-DomainEndpoint
-            - Name: SERVER_PORT
-              Value: "8182"
-      Cpu: 1024
+          ReadonlyRootFilesystem: true
+          User: "35002:35002"
+          Ulimits:
+            - Name: nofile
+              SoftLimit: 65536
+              HardLimit: 65536
+            - Name: memlock
+              SoftLimit: -1
+              HardLimit: -1
+      Cpu: 4096
       ExecutionRoleArn: !GetAtt taskExecutionRole.Arn
-      Memory: 4096
+      Memory: 16384
       NetworkMode: "awsvpc"
       RequiresCompatibilities: 
         - FARGATE
@@ -228,12 +228,13 @@ Resources:
   fargateService:
     Type: AWS::ECS::Service
     Properties:
-      ServiceName: !Ref ServiceName
       LaunchType: FARGATE
+      ServiceName: !Ref ServiceName
       Cluster: !ImportValue prod-general-infra-EcsCluster
       SchedulingStrategy: REPLICA
       DesiredCount: 1
       TaskDefinition: !Ref taskDef
+      HealthCheckGracePeriodSeconds: 300
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -254,7 +255,7 @@ Resources:
       LoadBalancers:
         - TargetGroupArn: !Ref targetGroup
           ContainerPort: 8182
-          ContainerName: kibana
+          ContainerName: tika
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName

@@ -224,7 +224,7 @@ Resources:
       ServiceName: !Ref ServiceName
       Cluster: !ImportValue prod-general-infra-EcsCluster
       SchedulingStrategy: REPLICA
-      DesiredCount: 2
+      DesiredCount: 1
       TaskDefinition: !Ref taskDef
       HealthCheckGracePeriodSeconds: 300
       NetworkConfiguration:
@@ -255,8 +255,8 @@ Resources:
   autoScalingTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
-      MaxCapacity: 5
-      MinCapacity: 2
+      MaxCapacity: 6
+      MinCapacity: 1
       ResourceId: !Join ["/", [service, !ImportValue prod-general-infra-EcsCluster, !GetAtt [fargateService, Name]]]
       RoleARN: !GetAtt autoScalingRole.Arn
       ScalableDimension: "ecs:service:DesiredCount"

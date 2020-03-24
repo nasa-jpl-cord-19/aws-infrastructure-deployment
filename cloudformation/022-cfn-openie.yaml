@@ -177,13 +177,6 @@ Resources:
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
-  # ecs cluster resources
-  ecsCluster:
-    Type: AWS::ECS::Cluster
-    Properties:
-      Tags:
-        - Key: ProjectName
-          Value: !Ref ProjectName
 
   containerInstances:
     Type: AWS::AutoScaling::LaunchConfiguration
@@ -195,11 +188,15 @@ Resources:
         - !Ref ecsServiceSecurityGroup
         - !ImportValue "prod-vpc-Ec2EcsHostDefaultSecurityGroup"
       UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash -xe
-          echo ECS_CLUSTER=${ecsCluster} >> /etc/ecs/ecs.config
-          yum install -y aws-cfn-bootstrap
-          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ecsAutoScalingGroup --region ${AWS::Region}
+        Fn::Base64:
+          Fn::Sub:
+            - |
+              #!/bin/bash -xe
+              echo ECS_CLUSTER=${ecsCluster} >> /etc/ecs/ecs.config
+              yum install -y aws-cfn-bootstrap
+              /opt/aws/bin/cfn-signal -e $? --stack ${stackName} --resource ecsAutoScalingGroup --region ${AWS::Region}
+            - ecsCluster: !ImportValue prod-general-infra-EcsCluster
+              stackName: !Ref AWS::StackName
 
   ecsAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
@@ -335,7 +332,7 @@ Resources:
       - ecsAutoScalingGroup
     Properties:
       ServiceName: !Ref ServiceName
-      Cluster: !Ref ecsCluster
+      Cluster: !ImportValue prod-general-infra-EcsCluster
       DesiredCount: 1
       TaskDefinition: !Ref taskDef
       HealthCheckGracePeriodSeconds: 300
@@ -356,7 +353,3 @@ Outputs:
     Value: !Ref cognitoAppClient
     Export:
       Name: !Sub "${AWS::StackName}-CognitoAppClientId"
-  EcsCluster:
-    Value: !Ref ecsCluster
-    Export:
-      Name: !Sub "${AWS::StackName}-EcsCluster"

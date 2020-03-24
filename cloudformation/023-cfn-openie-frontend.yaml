@@ -229,7 +229,7 @@ Resources:
     Properties:
       ServiceName: !Ref ServiceName
       LaunchType: FARGATE
-      Cluster: !ImportValue prod-openie-EcsCluster
+      Cluster: !ImportValue prod-general-infra-EcsCluster
       SchedulingStrategy: REPLICA
       DesiredCount: 1
       TaskDefinition: !Ref taskDef
@@ -264,7 +264,7 @@ Resources:
     Properties:
       MaxCapacity: 5
       MinCapacity: 1
-      ResourceId: !Join ["/", [service, !ImportValue prod-openie-EcsCluster, !GetAtt [fargateService, Name]]]
+      ResourceId: !Join ["/", [service, !ImportValue prod-general-infra-EcsCluster, !GetAtt [fargateService, Name]]]
       RoleARN: !GetAtt autoScalingRole.Arn
       ScalableDimension: "ecs:service:DesiredCount"
       ServiceNamespace: ecs
@@ -272,7 +272,7 @@ Resources:
   autoScalingPolicy:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
     Properties:
-      PolicyName: !Join ['', [!ImportValue prod-openie-EcsCluster, AutoScalingPolicy]]
+      PolicyName: !Join ['', [!ImportValue prod-general-infra-EcsCluster, AutoScalingPolicy]]
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref autoScalingTarget
       TargetTrackingScalingPolicyConfiguration:

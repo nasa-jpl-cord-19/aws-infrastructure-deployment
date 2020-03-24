@@ -37,6 +37,11 @@ Resources:
     Properties:
       RepositoryName: apache-jena-fuseki
 
+  tikaCtakesEcr:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: apache-tika-ctakes
+
   kibanaEcr:
     Type: AWS::ECR::Repository
     Properties:
