@@ -27,6 +27,9 @@ Resources:
   crawledDocuments:
     Type: "AWS::S3::Bucket"
   
+  jupyterScratch:
+    Type: "AWS::S3::Bucket"
+
   openieEcr:
     Type: AWS::ECR::Repository
     Properties:

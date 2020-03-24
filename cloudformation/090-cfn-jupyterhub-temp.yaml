@@ -22,6 +22,10 @@ Parameters:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
 
+  ScratchBucket:
+    Type: String
+    Description: ARN for s3 bucket to grant access to.
+
 Resources:
 
   bastionInstanceProfile:
@@ -62,6 +66,23 @@ Resources:
                   - !Sub "arn:aws:s3:::${AWS::Region}-birdwatcher-prod/*"
                   - !Sub "arn:aws:s3:::aws-ssm-document-attachments-${AWS::Region}/*"
                   - !Sub "arn:aws:s3:::patch-baseline-snapshot-${AWS::Region}/*"
+        - PolicyName: s3-access
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:GetBucketLocation"
+                  - "s3:ListBucket"
+                  - "s3:ListBucketMultipartUploads"
+                Resource:
+                  !Sub "${ScratchBucket}"
+              - Effect: Allow
+                Action:
+                  - "s3:*Object"
+                  - "s3:ListMultipartUploadParts"
+                  - "s3:AbortMultipartUpload"
+                Resource:
+                  - !Sub "${ScratchBucket}/*"
 
   bastionSecurityGroup:
     Type: AWS::EC2::SecurityGroup
