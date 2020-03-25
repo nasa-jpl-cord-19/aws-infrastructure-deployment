@@ -158,9 +158,9 @@ Resources:
             - Name: memlock
               SoftLimit: -1
               HardLimit: -1
-      Cpu: 1024
+      Cpu: 2048
       ExecutionRoleArn: !GetAtt taskExecutionRole.Arn
-      Memory: 4096
+      Memory: 8192
       NetworkMode: "awsvpc"
       RequiresCompatibilities: 
         - FARGATE
@@ -258,7 +258,7 @@ Resources:
       ServiceName: !Ref ServiceName
       Cluster: !ImportValue prod-general-infra-EcsCluster
       SchedulingStrategy: REPLICA
-      DesiredCount: 1
+      DesiredCount: 2
       TaskDefinition: !Ref taskDef
       HealthCheckGracePeriodSeconds: 300
       NetworkConfiguration:
@@ -292,8 +292,8 @@ Resources:
   autoScalingTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
-      MaxCapacity: 6
-      MinCapacity: 1
+      MaxCapacity: 8
+      MinCapacity: 2
       ResourceId: !Join ["/", [service, !ImportValue prod-general-infra-EcsCluster, !GetAtt [fargateService, Name]]]
       RoleARN: !GetAtt autoScalingRole.Arn
       ScalableDimension: "ecs:service:DesiredCount"
@@ -309,9 +309,9 @@ Resources:
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
         ScaleInCooldown: 10
-        ScaleOutCooldown: 5
+        ScaleOutCooldown: 2
         # Keep things at or lower than n% CPU utilization
-        TargetValue: 75
+        TargetValue: 60
 
   dnsRecord:
     Type: AWS::Route53::RecordSet

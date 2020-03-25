@@ -155,7 +155,7 @@ Resources:
               awslogs-region: !Ref AWS::Region
               awslogs-group: !Ref logGroup
               awslogs-stream-prefix: tika
-          MemoryReservation: 16384
+          # MemoryReservation: 16384
           PortMappings:
             - ContainerPort: 8182
               HostPort: 8182
@@ -172,7 +172,7 @@ Resources:
               HardLimit: -1
       Cpu: 4096
       ExecutionRoleArn: !GetAtt taskExecutionRole.Arn
-      Memory: 16384
+      Memory: 24576
       NetworkMode: "awsvpc"
       RequiresCompatibilities: 
         - FARGATE
@@ -270,7 +270,7 @@ Resources:
       ServiceName: !Ref ServiceName
       Cluster: !ImportValue prod-general-infra-EcsCluster
       SchedulingStrategy: REPLICA
-      DesiredCount: 1
+      DesiredCount: 8
       TaskDefinition: !Ref taskDef
       HealthCheckGracePeriodSeconds: 300
       NetworkConfiguration:
@@ -304,8 +304,8 @@ Resources:
   autoScalingTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
-      MaxCapacity: 6
-      MinCapacity: 1
+      MaxCapacity: 16
+      MinCapacity: 8
       ResourceId: !Join ["/", [service, !ImportValue prod-general-infra-EcsCluster, !GetAtt [fargateService, Name]]]
       RoleARN: !GetAtt autoScalingRole.Arn
       ScalableDimension: "ecs:service:DesiredCount"

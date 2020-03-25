@@ -30,6 +30,33 @@ Resources:
   jupyterScratch:
     Type: "AWS::S3::Bucket"
 
+  logExports:
+    Type: "AWS::S3::Bucket"
+
+  logExportsPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref logExports
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action: 
+              - "s3:GetBucketAcl"
+            Resource: 
+              - !Sub "arn:aws:s3:::${logExports}"
+            Principal:
+              Service: "logs.us-east-1.amazonaws.com"
+          - Effect: Allow
+            Action: 
+              - "s3:PutObject"
+            Resource: 
+              - !Sub "arn:aws:s3:::${logExports}/*"
+            Principal:
+              Service: "logs.us-east-1.amazonaws.com"
+            Condition:
+              StringEquals:
+                "s3:x-amz-acl": "bucket-owner-full-control"
+
   openieEcr:
     Type: AWS::ECR::Repository
     Properties:
@@ -71,6 +98,9 @@ Resources:
   lb:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
+      LoadBalancerAttributes:
+      - Key: 'idle_timeout.timeout_seconds'
+        Value: 120
       Type: application
       IpAddressType: ipv4
       Scheme: internet-facing
@@ -88,6 +118,9 @@ Resources:
   internalLb:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
+      LoadBalancerAttributes:
+      - Key: 'idle_timeout.timeout_seconds'
+        Value: 600
       Type: application
       IpAddressType: ipv4
       Scheme: internal
