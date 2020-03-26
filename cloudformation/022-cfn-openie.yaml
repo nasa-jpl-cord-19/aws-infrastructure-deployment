@@ -21,6 +21,13 @@ Parameters:
     Description: AMI ID
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
+  MinServices:
+    Type: Number
+  MaxServices:
+    Type: Number
+  DesiredServices:
+    Type: Number
+
 
 Resources:
   logGroup:
@@ -252,9 +259,9 @@ Resources:
             - ','
             - Fn::ImportValue: prod-vpc-PrivateSubnetIds
       LaunchConfigurationName: !Ref containerInstances
-      MinSize: '1'
-      MaxSize: '4'
-      DesiredCapacity: '2'
+      MinSize: !Ref MinServices
+      MaxSize: !Ref MaxServices
+      DesiredCapacity: !Ref DesiredServices
     CreationPolicy:
       ResourceSignal:
         Timeout: PT15M
@@ -372,7 +379,7 @@ Resources:
     Properties:
       ServiceName: !Ref ServiceName
       Cluster: !ImportValue prod-general-infra-EcsCluster
-      DesiredCount: 1
+      DesiredCount: !Ref DesiredServices
       TaskDefinition: !Ref taskDef
       HealthCheckGracePeriodSeconds: 300
       PlacementConstraints:

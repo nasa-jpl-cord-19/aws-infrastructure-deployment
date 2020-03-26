@@ -15,13 +15,19 @@ Parameters:
   S3PrefixListId:
     Type: String
     Description: Vpc access to S3, obtained with "aws  --profile <your-profile> --region us-east-1 ec2 describe-prefix-lists"
+  MinServices:
+    Type: Number
+  MaxServices:
+    Type: Number
+  DesiredServices:
+    Type: Number
+
 Resources:
   logGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/ecs/${ProjectName}/${AWS::StackName}"
       RetentionInDays: 14
-
 
   targetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -232,7 +238,7 @@ Resources:
       LaunchType: FARGATE
       Cluster: !ImportValue prod-general-infra-EcsCluster
       SchedulingStrategy: REPLICA
-      DesiredCount: 1
+      DesiredCount: !Ref DesiredServices
       TaskDefinition: !Ref taskDef
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -262,8 +268,8 @@ Resources:
   autoScalingTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
-      MaxCapacity: 6
-      MinCapacity: 1
+      MaxCapacity: !Ref MaxServices
+      MinCapacity: !Ref MinServices
       ResourceId: !Join ["/", [service, !ImportValue prod-general-infra-EcsCluster, !GetAtt [fargateService, Name]]]
       RoleARN: !GetAtt autoScalingRole.Arn
       ScalableDimension: "ecs:service:DesiredCount"
