@@ -752,6 +752,23 @@ Resources:
       RuleAction: allow
       RuleNumber: '113'
 
+  # Adding this because some services we are deploying do
+  # not have the ability to change the listener port
+  privateNetAclInboundEntry114:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'false'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '8765'
+        To: '8765'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '114'
+
   privateNetAclInboundEntry120:
     Type: AWS::EC2::NetworkAclEntry
     DependsOn:
@@ -871,20 +888,23 @@ Resources:
       Protocol: '6'
       RuleAction: allow
       RuleNumber: '113'
-  # privateNetAclOutboundEntry115:
-  #   Type: AWS::EC2::NetworkAclEntry
-  #   DependsOn:
-  #     - privateNetworkAcl
-  #   Properties:
-  #     CidrBlock: "0.0.0.0/0"
-  #     Egress: 'true'
-  #     NetworkAclId: !Ref privateNetworkAcl
-  #     PortRange:
-  #       From: '21'
-  #       To: '21'
-  #     Protocol: '6'
-  #     RuleAction: allow
-  #     RuleNumber: '115'
+
+  # Adding this because some services we are deploying do
+  # not have the ability to change the listener port
+  privateNetAclOutboundEntry114:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - privateNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'true'
+      NetworkAclId: !Ref privateNetworkAcl
+      PortRange:
+        From: '8765'
+        To: '8765'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '114'
 
   privateNetAclOutboundEntry120:
     Type: AWS::EC2::NetworkAclEntry
@@ -1096,21 +1116,24 @@ Resources:
       Protocol: '6'
       RuleAction: allow
       RuleNumber: '113'
-      
-  # publicNetAclOutboundEntry120:
-  #   Type: AWS::EC2::NetworkAclEntry
-  #   DependsOn:
-  #     - publicNetworkAcl
-  #   Properties:
-  #     CidrBlock: "0.0.0.0/0"
-  #     Egress: 'true'
-  #     NetworkAclId: !Ref publicNetworkAcl
-  #     PortRange:
-  #       From: '21'
-  #       To: '21'
-  #     Protocol: '6'
-  #     RuleAction: allow
-  #     RuleNumber: '120'
+
+  # Adding this because some services we are deploying do
+  # not have the ability to change the listener port
+  publicNetAclOutboundEntry114:
+    Type: AWS::EC2::NetworkAclEntry
+    DependsOn:
+      - publicNetworkAcl
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      Egress: 'true'
+      NetworkAclId: !Ref publicNetworkAcl
+      PortRange:
+        From: '8765'
+        To: '8765'
+      Protocol: '6'
+      RuleAction: allow
+      RuleNumber: '114'
+
 
   publicNetAclOutboundEntry140:
     Type: AWS::EC2::NetworkAclEntry
