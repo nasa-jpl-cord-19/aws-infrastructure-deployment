@@ -1,16 +1,25 @@
 AWSTemplateFormatVersion : '2010-09-09'
-Description: "Kibana Endpoint"
+Description: "Apache Tika CTAKES Endpoint"
 
 Parameters:
   ProjectName:
     Type: String
-  ImageUri:
+  AuthImageUri:
     Type: String
-  ServiceHostName:
+  CognitoClientId:
+    Type: String
+  CognitoClientSecret:
+    Type: String
+    NoEcho: true
+  ImageUri:
     Type: String
   ServiceName:
     Type: String
+  ServiceHostName:
+    Type: String
   Route53HostedZoneId:
+    Type: String
+  InternalRoute53HostedZoneId:
     Type: String
   S3PrefixListId:
     Type: String
@@ -33,18 +42,53 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: !Ref ServiceName
-      HealthCheckIntervalSeconds: 15
-      HealthCheckPath: "/api/status"
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: "/fd888239-5bf8-4e6d-a523-f0ca5a34479c/status"
       HealthCheckTimeoutSeconds: 5
-      UnhealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
       HealthyThresholdCount: 2
-      Port: 8182
+      Port: 80
       Protocol: HTTP
       TargetType: ip
       VpcId: !ImportValue prod-vpc-PrivateVpcId
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
+
+      
+  # targetGroup:
+  #   Type: AWS::ElasticLoadBalancingV2::TargetGroup
+  #   Properties:
+  #     Name: !Ref ServiceName
+  #     HealthCheckIntervalSeconds: 10
+  #     HealthCheckPath: "/version"
+  #     HealthCheckTimeoutSeconds: 5
+  #     UnhealthyThresholdCount: 5
+  #     HealthyThresholdCount: 2
+  #     Port: 8182
+  #     Protocol: HTTP
+  #     TargetType: ip
+  #     VpcId: !ImportValue prod-vpc-PrivateVpcId
+  #     Tags:
+  #       - Key: ProjectName
+  #         Value: !Ref ProjectName
+
+  # internalTargetGroup:
+  #   Type: AWS::ElasticLoadBalancingV2::TargetGroup
+  #   Properties:
+  #     Name: !Sub "internal-${ServiceName}"
+  #     HealthCheckIntervalSeconds: 60
+  #     HealthCheckPath: "/version"
+  #     HealthCheckTimeoutSeconds: 5
+  #     UnhealthyThresholdCount: 5
+  #     HealthyThresholdCount: 2
+  #     Port: 8182
+  #     Protocol: HTTP
+  #     TargetType: ip
+  #     VpcId: !ImportValue prod-vpc-PrivateVpcId
+  #     Tags:
+  #       - Key: ProjectName
+  #         Value: !Ref ProjectName
 
   fargateSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -53,10 +97,32 @@ Resources:
       VpcId: !ImportValue prod-vpc-PrivateVpcId
       SecurityGroupIngress:
         - IpProtocol: 'tcp'
-          FromPort: 8182
-          ToPort: 8182
+          FromPort: 80
+          ToPort: 80
           SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+        - IpProtocol: 'tcp'
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !ImportValue prod-general-infra-InternalLb-SecurityGroupId
+        # - IpProtocol: 'tcp'
+        #   FromPort: 8182
+        #   ToPort: 8182
+        #   SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+        # - IpProtocol: 'tcp'
+        #   FromPort: 8182
+        #   ToPort: 8182
+        #   SourceSecurityGroupId: !ImportValue prod-general-infra-InternalLb-SecurityGroupId
       SecurityGroupEgress:
+        # I guess this thing needs to communicate with other apis
+        - FromPort: 443
+          ToPort: 443
+          IpProtocol: 'tcp'
+          CidrIp: '0.0.0.0/0'
+        # - FromPort: 80
+        #   ToPort: 80
+        #   IpProtocol: 'tcp'
+        #   CidrIp: '0.0.0.0/0'
+        # Access to s3
         - FromPort: 443
           ToPort: 443
           IpProtocol: 'tcp'
@@ -65,45 +131,26 @@ Resources:
           ToPort: 80
           IpProtocol: 'tcp'
           DestinationPrefixListId: !Ref S3PrefixListId
-        - DestinationSecurityGroupId: !ImportValue prod-elastic-ESCluster-SecurityGroupId
-          IpProtocol: '6'
-          FromPort: '80'
-          ToPort: '80'
-        - DestinationSecurityGroupId: !ImportValue prod-elastic-ESCluster-SecurityGroupId
-          IpProtocol: '6'
-          FromPort: '443'
-          ToPort: '443'
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
 
-
-  fargateToEsIngress:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-      Description: Ingress from the fargate kibana host
-      GroupId: !ImportValue prod-elastic-ESCluster-SecurityGroupId
-      IpProtocol: 6
-      FromPort: 443
-      ToPort: 443
-      SourceSecurityGroupId: !GetAtt fargateSecurityGroup.GroupId
-
-  kibanaListenerRule:
+  listenerRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       Actions:
-        - Type: authenticate-cognito
-          Order: 1
-          AuthenticateCognitoConfig: 
-            OnUnauthenticatedRequest: authenticate
-            Scope: openid
-            SessionCookieName: AWSELBAuthSessionCookie
-            SessionTimeout: 28800
-            UserPoolArn: !ImportValue prod-auth-Cognito-UserPoolArn
-            UserPoolDomain: !ImportValue prod-auth-Cognito-UserPoolDomain
-            UserPoolClientId: !Ref cognitoAppClient
+        # - Type: authenticate-cognito
+        #   Order: 1
+        #   AuthenticateCognitoConfig: 
+        #     OnUnauthenticatedRequest: authenticate
+        #     Scope: openid
+        #     SessionCookieName: AWSELBAuthSessionCookie
+        #     SessionTimeout: 28800
+        #     UserPoolArn: !ImportValue prod-auth-Cognito-UserPoolArn
+        #     UserPoolDomain: !ImportValue prod-auth-Cognito-UserPoolDomain
+        #     UserPoolClientId: !Ref cognitoAppClient
         - TargetGroupArn: !Ref targetGroup
-          Order: 2
+          Order: 1
           Type: forward
       Conditions:
         - Field: host-header
@@ -111,13 +158,111 @@ Resources:
             Values:
               - !Ref ServiceHostName
       ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
-      Priority: 1
+      Priority: 8
+
+  # internalListenerRule:
+  #   Type: AWS::ElasticLoadBalancingV2::ListenerRule
+  #   Properties:
+  #     Actions:
+  #       - TargetGroupArn: !Ref internalTargetGroup
+  #         Order: 1
+  #         Type: forward
+  #     Conditions:
+  #       - Field: host-header
+  #         HostHeaderConfig:
+  #           Values:
+  #             - !Sub "${ServiceHostName}.internal"
+  #     ListenerArn: !ImportValue prod-general-infra-InternalLb-HttpListenerArn
+  #     Priority: 8
 
   taskDef:
     Type: AWS::ECS::TaskDefinition
     Properties:
       ContainerDefinitions:
-        - Name: "kibana"
+        - Name: auth-sidecar
+          Essential: true
+          Image: !Ref AuthImageUri
+          LinuxParameters:
+            Capabilities:
+              Drop:
+                - SETPCAP
+                - MKNOD
+                - AUDIT_WRITE
+                - NET_RAW
+                - DAC_OVERRIDE
+                - FOWNER
+                - FSETID
+                - KILL
+                - SYS_CHROOT
+                - SETFCAP
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref logGroup
+              awslogs-stream-prefix: auth-sidecar
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 80
+              Protocol: tcp
+          Privileged: false
+          ReadonlyRootFilesystem: false
+          Environment:
+            - Name: COGNITO_USER_POOL_ID
+              Value: !ImportValue prod-auth-Cognito-UserPoolId
+            - Name: COGNITO_USER_POOL_CLIENT_ID
+              Value: !Ref CognitoClientId
+            - Name: COGNITO_USER_POOL_CLIENT_SECRET
+              Value: !Ref CognitoClientSecret
+            - Name: SERVICE_HOST_NAME
+              Value: !Ref ServiceHostName
+            - Name: APP_PORT
+              Value: "8182"
+          DependsOn:
+            - ContainerName: !Ref ServiceName
+              Condition: START
+        - Name: !Ref ServiceName
+          Command: 
+            - "--port"
+            - "8182"
+          Essential: true
+          Image: !Ref ImageUri
+          Environment:
+            - Name: GAZETTEER_ENDPOINT
+              Value: http://localhost:8765
+          LinuxParameters:
+            Capabilities:
+              Drop: 
+                - "ALL"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref logGroup
+              awslogs-stream-prefix: !Ref ServiceName
+          # MemoryReservation: 16384
+          PortMappings:
+            - ContainerPort: 8182
+              HostPort: 8182
+              Protocol: tcp
+          Privileged: false
+          ReadonlyRootFilesystem: false
+          User: "35002:35002"
+          Ulimits:
+            - Name: nofile
+              SoftLimit: 65536
+              HardLimit: 65536
+            - Name: memlock
+              SoftLimit: -1
+              HardLimit: -1
+          DependsOn:
+            - ContainerName: lucene-geo-gazetteer
+              Condition: START
+        - Name: lucene-geo-gazetteer
+          EntryPoint:
+            - "lucene-geo-gazetteer"
+          Command: 
+            - "-server"
           Essential: true
           Image: !Ref ImageUri
           LinuxParameters:
@@ -129,26 +274,25 @@ Resources:
             Options:
               awslogs-region: !Ref AWS::Region
               awslogs-group: !Ref logGroup
-              awslogs-stream-prefix: kibana
-          MemoryReservation: 2048
+              awslogs-stream-prefix: lucene-geo-gazetteer
+          # MemoryReservation: 16384
           PortMappings:
-            - ContainerPort: 8182
-              HostPort: 8182
+            - ContainerPort: 8765
+              HostPort: 8765
               Protocol: tcp
           Privileged: false
-          ReadonlyRootFilesystem: false
-          Environment:
-            - Name: ELASTICSEARCH_HOSTS
-              Value:
-                Fn::Sub:
-                  - "https://${esHost}:443"
-                  - esHost: 
-                      Fn::ImportValue: prod-elastic-ESCluster-DomainEndpoint
-            - Name: SERVER_PORT
-              Value: "8182"
-      Cpu: 1024
+          ReadonlyRootFilesystem: true
+          User: "35002:35002"
+          Ulimits:
+            - Name: nofile
+              SoftLimit: 65536
+              HardLimit: 65536
+            - Name: memlock
+              SoftLimit: -1
+              HardLimit: -1
+      Cpu: 4096
       ExecutionRoleArn: !GetAtt taskExecutionRole.Arn
-      Memory: 4096
+      Memory: 24576
       NetworkMode: "awsvpc"
       RequiresCompatibilities: 
         - FARGATE
@@ -226,9 +370,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - "application-autoscaling:D*"
-                  - "application-autoscaling:P*"
-                  - "application-autoscaling:R*"
+                  - "application-autoscaling:*"
                   - "cloudwatch:DescribeAlarms"
                   - "cloudwatch:PutMetricAlarm"
                 Resource: "*"
@@ -244,12 +386,13 @@ Resources:
   fargateService:
     Type: AWS::ECS::Service
     Properties:
-      ServiceName: !Ref ServiceName
       LaunchType: FARGATE
+      ServiceName: !Ref ServiceName
       Cluster: !ImportValue prod-general-infra-EcsCluster
       SchedulingStrategy: REPLICA
       DesiredCount: !Ref DesiredServices
       TaskDefinition: !Ref taskDef
+      HealthCheckGracePeriodSeconds: 90
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -269,8 +412,14 @@ Resources:
             - !ImportValue "prod-vpc-Ec2EcsHostDefaultSecurityGroup"
       LoadBalancers:
         - TargetGroupArn: !Ref targetGroup
-          ContainerPort: 8182
-          ContainerName: kibana
+          ContainerPort: 80
+          ContainerName: auth-sidecar
+        # - TargetGroupArn: !Ref targetGroup
+        #   ContainerPort: 8182
+        #   ContainerName: !Ref ServiceName
+        # - TargetGroupArn: !Ref internalTargetGroup
+        #   ContainerPort: 8182
+        #   ContainerName: !Ref ServiceName
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
@@ -295,7 +444,7 @@ Resources:
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
         ScaleInCooldown: 10
-        ScaleOutCooldown: 5
+        ScaleOutCooldown: 3
         # Keep things at or lower than n% CPU utilization
         TargetValue: 75
 
@@ -310,23 +459,13 @@ Resources:
       Name: !Ref ServiceHostName
       Type: A
 
-  cognitoAppClient:
-    Type: AWS::Cognito::UserPoolClient
-    Properties: 
-      ClientName: !Sub '${AWS::StackName} ALB'
-      ExplicitAuthFlows: 
-        - USER_PASSWORD_AUTH
-      GenerateSecret: True
-      RefreshTokenValidity: 1
-      UserPoolId: !ImportValue prod-auth-Cognito-UserPoolId
-      ReadAttributes: 
-        - email
-      AllowedOAuthFlows: 
-        - code
-      AllowedOAuthScopes: 
-        - openid
-      SupportedIdentityProviders: 
-        - COGNITO
-      AllowedOAuthFlowsUserPoolClient: True
-      CallbackURLs: 
-        - !Sub "https://${ServiceHostName}/oauth2/idpresponse"
+  # internalDnsRecord:
+  #   Type: AWS::Route53::RecordSet
+  #   Properties:
+  #     AliasTarget:
+  #       DNSName: !ImportValue prod-general-infra-InternalLb-DNSName
+  #       EvaluateTargetHealth: true
+  #       HostedZoneId: !ImportValue prod-general-infra-InternalLb-HostedZoneId
+  #     HostedZoneId: !Ref InternalRoute53HostedZoneId
+  #     Name: !Sub "${ServiceHostName}.internal"
+  #     Type: A

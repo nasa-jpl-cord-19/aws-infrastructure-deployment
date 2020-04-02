@@ -10,7 +10,7 @@ Resources:
         AllowAdminCreateUserOnly: true
         InviteMessageTemplate:
           EmailMessage: |
-            Welcome to https://kibana.covid19data.space
+            Welcome to covid19data.space tools
             Your username is {username} and temporary password is {####}.
           EmailSubject: "Your temporary password for covid19 data kibana"
       AutoVerifiedAttributes:
@@ -46,19 +46,49 @@ Resources:
       Domain: covid19data-users-1
       UserPoolId: !Ref userPool
 
+  genericCognitoAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn:
+        - genericCognitoResourceServer
+    Properties: 
+      ClientName: General API Client
+      ExplicitAuthFlows: 
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: True
+      RefreshTokenValidity: 1
+      UserPoolId: !Ref userPool
+      AllowedOAuthFlows: 
+        - client_credentials
+      AllowedOAuthScopes: 
+        - general/doit
+      SupportedIdentityProviders: 
+        - COGNITO
+      AllowedOAuthFlowsUserPoolClient: True
+
+  genericCognitoResourceServer:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      Identifier: general
+      Name: General API Resources
+      Scopes:
+        - ScopeDescription: do the thing
+          ScopeName: doit
+      UserPoolId: !Ref userPool
+
 Outputs:
   CognitoUserPoolId:
     Value: !Ref userPool
     Export:
-      Name:
-        !Sub "${AWS::StackName}-Cognito-UserPoolId"
+      Name: !Sub "${AWS::StackName}-Cognito-UserPoolId"
   CognitoUserPoolArn:
     Value: !GetAtt userPool.Arn
     Export:
-      Name:
-        !Sub "${AWS::StackName}-Cognito-UserPoolArn"
+      Name: !Sub "${AWS::StackName}-Cognito-UserPoolArn"
   CognitoUserPoolDomain:
     Value: !Ref userPoolDomain
     Export:
-      Name:
-        !Sub "${AWS::StackName}-Cognito-UserPoolDomain"
+      Name: !Sub "${AWS::StackName}-Cognito-UserPoolDomain"
+  GeneralAppClientId:
+    Value: !Ref genericCognitoAppClient
+    Export:
+      Name: !Sub "${AWS::StackName}-Cognito-GeneralAppClientId"

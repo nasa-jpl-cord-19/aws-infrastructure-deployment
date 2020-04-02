@@ -57,6 +57,56 @@ Resources:
               StringEquals:
                 "s3:x-amz-acl": "bucket-owner-full-control"
 
+  userCloudTrailBucket:
+    Type: "AWS::S3::Bucket"
+
+  userCloudTrailBucketPolicy:
+    Type: "AWS::S3::BucketPolicy"
+    Properties:
+      Bucket: !Ref userCloudTrailBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - "s3:GetBucketAcl"
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::${userCloudTrailBucket}"
+            Principal:
+              Service:
+                - "cloudtrail.amazonaws.com"
+          - Effect: Allow
+            Action:
+              - "s3:PutObject"
+            Resource:
+              - !Sub "arn:${AWS::Partition}:s3:::${userCloudTrailBucket}/AWSLogs/${AWS::AccountId}/*"
+            Principal:
+              Service:
+                - "cloudtrail.amazonaws.com"
+            Condition:
+              StringEquals:
+                "s3:x-amz-acl": "bucket-owner-full-control"
+
+  userEnabledCloudTrail:
+    DependsOn:
+      - userCloudTrailBucketPolicy
+    Type: "AWS::CloudTrail::Trail"
+    Properties:
+      EventSelectors:
+        - DataResources:
+            - Type: "AWS::S3::Object"
+              Values:
+                - !Sub "arn:${AWS::Partition}:s3:::"
+            - Type: "AWS::Lambda::Function"
+              Values:
+                - !Sub "arn:${AWS::Partition}:lambda"
+          IncludeManagementEvents: true
+          ReadWriteType: All
+      IncludeGlobalServiceEvents: true
+      IsLogging: true
+      IsMultiRegionTrail: true
+      S3BucketName: !Ref userCloudTrailBucket
+      TrailName: UserTrail
+
   openieEcr:
     Type: AWS::ECR::Repository
     Properties:
@@ -86,6 +136,16 @@ Resources:
     Type: AWS::ECR::Repository
     Properties:
       RepositoryName: rhapsode
+
+  tikaGeoParserEcr:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: apache-tika-geoparser
+
+  AuthSidecarEcr:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: auth-sidecar
 
   ecsCluster:
     Type: AWS::ECS::Cluster
