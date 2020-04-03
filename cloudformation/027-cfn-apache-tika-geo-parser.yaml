@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion : '2010-09-09'
-Description: "Apache Tika CTAKES Endpoint"
+Description: "Apache Tika Geo Parsing Endpoint"
 
 Parameters:
   ProjectName:
@@ -38,10 +38,10 @@ Resources:
       LogGroupName: !Sub "/ecs/${ProjectName}/${AWS::StackName}"
       RetentionInDays: 14
 
-  targetGroup:
+  targetGroupExternalApi:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Ref ServiceName
+      Name: !Sub "external-api-${ServiceName}"
       HealthCheckIntervalSeconds: 10
       HealthCheckPath: "/fd888239-5bf8-4e6d-a523-f0ca5a34479c/status"
       HealthCheckTimeoutSeconds: 5
@@ -55,23 +55,22 @@ Resources:
         - Key: ProjectName
           Value: !Ref ProjectName
 
-      
-  # targetGroup:
-  #   Type: AWS::ElasticLoadBalancingV2::TargetGroup
-  #   Properties:
-  #     Name: !Ref ServiceName
-  #     HealthCheckIntervalSeconds: 10
-  #     HealthCheckPath: "/version"
-  #     HealthCheckTimeoutSeconds: 5
-  #     UnhealthyThresholdCount: 5
-  #     HealthyThresholdCount: 2
-  #     Port: 8182
-  #     Protocol: HTTP
-  #     TargetType: ip
-  #     VpcId: !ImportValue prod-vpc-PrivateVpcId
-  #     Tags:
-  #       - Key: ProjectName
-  #         Value: !Ref ProjectName
+  targetGroupExternalBrowser:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "external-browser-${ServiceName}"
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: "/version"
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 5
+      HealthyThresholdCount: 2
+      Port: 8182
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
 
   # internalTargetGroup:
   #   Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -86,6 +85,7 @@ Resources:
   #     Protocol: HTTP
   #     TargetType: ip
   #     VpcId: !ImportValue prod-vpc-PrivateVpcId
+
   #     Tags:
   #       - Key: ProjectName
   #         Value: !Ref ProjectName
@@ -100,57 +100,58 @@ Resources:
           FromPort: 80
           ToPort: 80
           SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+          Description: Allow access from external facing lb to api auth sidecar
         - IpProtocol: 'tcp'
           FromPort: 80
           ToPort: 80
           SourceSecurityGroupId: !ImportValue prod-general-infra-InternalLb-SecurityGroupId
-        # - IpProtocol: 'tcp'
-        #   FromPort: 8182
-        #   ToPort: 8182
-        #   SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
-        # - IpProtocol: 'tcp'
-        #   FromPort: 8182
-        #   ToPort: 8182
-        #   SourceSecurityGroupId: !ImportValue prod-general-infra-InternalLb-SecurityGroupId
+          Description: Allow access from internal facing lb to api auth sidecar
+        - IpProtocol: 'tcp'
+          FromPort: 8182
+          ToPort: 8182
+          SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+          Description: Allow access from external facing lb to app after browser authentication
+        - IpProtocol: 'tcp'
+          FromPort: 8182
+          ToPort: 8182
+          SourceSecurityGroupId: !ImportValue prod-general-infra-InternalLb-SecurityGroupId
+          Description: Allow access from internal facing lb to app without auth
       SecurityGroupEgress:
-        # I guess this thing needs to communicate with other apis
         - FromPort: 443
           ToPort: 443
           IpProtocol: 'tcp'
           CidrIp: '0.0.0.0/0'
-        # - FromPort: 80
-        #   ToPort: 80
-        #   IpProtocol: 'tcp'
-        #   CidrIp: '0.0.0.0/0'
-        # Access to s3
+          Description: Needs to allow access to cognito endpoint for jwt stuff and there is no vpc endpoint yet
         - FromPort: 443
           ToPort: 443
           IpProtocol: 'tcp'
           DestinationPrefixListId: !Ref S3PrefixListId
+          Description: Allow outbound to S3
         - FromPort: 80
           ToPort: 80
           IpProtocol: 'tcp'
           DestinationPrefixListId: !Ref S3PrefixListId
+          Description: Allow outbound to S3
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
 
-  listenerRule:
+  listenerRuleExternalBrowser:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       Actions:
-        # - Type: authenticate-cognito
-        #   Order: 1
-        #   AuthenticateCognitoConfig: 
-        #     OnUnauthenticatedRequest: authenticate
-        #     Scope: openid
-        #     SessionCookieName: AWSELBAuthSessionCookie
-        #     SessionTimeout: 28800
-        #     UserPoolArn: !ImportValue prod-auth-Cognito-UserPoolArn
-        #     UserPoolDomain: !ImportValue prod-auth-Cognito-UserPoolDomain
-        #     UserPoolClientId: !Ref cognitoAppClient
-        - TargetGroupArn: !Ref targetGroup
+        - Type: authenticate-cognito
           Order: 1
+          AuthenticateCognitoConfig: 
+            OnUnauthenticatedRequest: authenticate
+            Scope: openid
+            SessionCookieName: AWSELBAuthSessionCookie
+            SessionTimeout: 28800
+            UserPoolArn: !ImportValue prod-auth-Cognito-UserPoolArn
+            UserPoolDomain: !ImportValue prod-auth-Cognito-UserPoolDomain
+            UserPoolClientId: !Ref cognitoAppClient
+        - TargetGroupArn: !Ref targetGroupExternalBrowser
+          Order: 2
           Type: forward
       Conditions:
         - Field: host-header
@@ -158,7 +159,27 @@ Resources:
             Values:
               - !Ref ServiceHostName
       ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
-      Priority: 8
+      Priority: 271
+
+  listenerRuleExternalApi:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroupExternalApi
+          Order: 1
+          Type: forward
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Ref ServiceHostName
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: Authorization
+            Values:
+              - "Bearer *"
+      ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
+      Priority: 270
 
   # internalListenerRule:
   #   Type: AWS::ElasticLoadBalancingV2::ListenerRule
@@ -173,7 +194,7 @@ Resources:
   #           Values:
   #             - !Sub "${ServiceHostName}.internal"
   #     ListenerArn: !ImportValue prod-general-infra-InternalLb-HttpListenerArn
-  #     Priority: 8
+  #     Priority: 270
 
   taskDef:
     Type: AWS::ECS::TaskDefinition
@@ -301,6 +322,47 @@ Resources:
         - Key: ProjectName
           Value: !Ref ProjectName
 
+  fargateService:
+    Type: AWS::ECS::Service
+    Properties:
+      LaunchType: FARGATE
+      ServiceName: !Ref ServiceName
+      Cluster: !ImportValue prod-general-infra-EcsCluster
+      SchedulingStrategy: REPLICA
+      DesiredCount: !Ref DesiredServices
+      TaskDefinition: !Ref taskDef
+      HealthCheckGracePeriodSeconds: 90
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: 
+            - Fn::Select:
+              - 0
+              - Fn::Split:
+                - ','
+                - Fn::ImportValue: prod-vpc-PrivateSubnetIds
+            - Fn::Select:
+              - 5
+              - Fn::Split:
+                - ','
+                - Fn::ImportValue: prod-vpc-PrivateSubnetIds
+          SecurityGroups:
+            - !Ref fargateSecurityGroup
+            - !ImportValue "prod-vpc-Ec2EcsHostDefaultSecurityGroup"
+      LoadBalancers:
+        - TargetGroupArn: !Ref targetGroupExternalApi
+          ContainerPort: 80
+          ContainerName: auth-sidecar
+        - TargetGroupArn: !Ref targetGroupExternalBrowser
+          ContainerPort: 8182
+          ContainerName: !Ref ServiceName
+        # - TargetGroupArn: !Ref internalTargetGroup
+        #   ContainerPort: 8182
+        #   ContainerName: !Ref ServiceName
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
   taskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -383,47 +445,6 @@ Resources:
         - Key: ProjectName
           Value: !Ref ProjectName
 
-  fargateService:
-    Type: AWS::ECS::Service
-    Properties:
-      LaunchType: FARGATE
-      ServiceName: !Ref ServiceName
-      Cluster: !ImportValue prod-general-infra-EcsCluster
-      SchedulingStrategy: REPLICA
-      DesiredCount: !Ref DesiredServices
-      TaskDefinition: !Ref taskDef
-      HealthCheckGracePeriodSeconds: 90
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          AssignPublicIp: DISABLED
-          Subnets: 
-            - Fn::Select:
-              - 0
-              - Fn::Split:
-                - ','
-                - Fn::ImportValue: prod-vpc-PrivateSubnetIds
-            - Fn::Select:
-              - 5
-              - Fn::Split:
-                - ','
-                - Fn::ImportValue: prod-vpc-PrivateSubnetIds
-          SecurityGroups:
-            - !Ref fargateSecurityGroup
-            - !ImportValue "prod-vpc-Ec2EcsHostDefaultSecurityGroup"
-      LoadBalancers:
-        - TargetGroupArn: !Ref targetGroup
-          ContainerPort: 80
-          ContainerName: auth-sidecar
-        # - TargetGroupArn: !Ref targetGroup
-        #   ContainerPort: 8182
-        #   ContainerName: !Ref ServiceName
-        # - TargetGroupArn: !Ref internalTargetGroup
-        #   ContainerPort: 8182
-        #   ContainerName: !Ref ServiceName
-      Tags:
-        - Key: ProjectName
-          Value: !Ref ProjectName
-
   autoScalingTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:
@@ -469,3 +490,25 @@ Resources:
   #     HostedZoneId: !Ref InternalRoute53HostedZoneId
   #     Name: !Sub "${ServiceHostName}.internal"
   #     Type: A
+
+
+  cognitoAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties: 
+      ClientName: !Sub '${AWS::StackName} ALB'
+      ExplicitAuthFlows: 
+        - USER_PASSWORD_AUTH
+      GenerateSecret: True
+      RefreshTokenValidity: 1
+      UserPoolId: !ImportValue prod-auth-Cognito-UserPoolId
+      ReadAttributes: 
+        - email
+      AllowedOAuthFlows: 
+        - code
+      AllowedOAuthScopes: 
+        - openid
+      SupportedIdentityProviders: 
+        - COGNITO
+      AllowedOAuthFlowsUserPoolClient: True
+      CallbackURLs: 
+        - !Sub "https://${ServiceHostName}/oauth2/idpresponse"
