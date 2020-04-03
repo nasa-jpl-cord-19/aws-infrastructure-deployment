@@ -59,6 +59,12 @@ Resources:
 
   userCloudTrailBucket:
     Type: "AWS::S3::Bucket"
+    Properties:
+      LifecycleConfiguration:
+        Rules:
+          - Id: RemoveOlderThan
+            Status: Enabled
+            ExpirationInDays: '30'
 
   userCloudTrailBucketPolicy:
     Type: "AWS::S3::BucketPolicy"

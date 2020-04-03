@@ -44,8 +44,8 @@ Resources:
       Name: !Sub "external-api-${ServiceName}"
       HealthCheckIntervalSeconds: 10
       HealthCheckPath: "/fd888239-5bf8-4e6d-a523-f0ca5a34479c/status"
-      HealthCheckTimeoutSeconds: 5
-      UnhealthyThresholdCount: 5
+      HealthCheckTimeoutSeconds: 2
+      UnhealthyThresholdCount: 2
       HealthyThresholdCount: 2
       Port: 80
       Protocol: HTTP
@@ -59,10 +59,10 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: !Sub "external-browser-${ServiceName}"
-      HealthCheckIntervalSeconds: 60
+      HealthCheckIntervalSeconds: 5
       HealthCheckPath: "/$/status"
-      HealthCheckTimeoutSeconds: 5
-      UnhealthyThresholdCount: 5
+      HealthCheckTimeoutSeconds: 2
+      UnhealthyThresholdCount: 2
       HealthyThresholdCount: 2
       Port: 8182
       Protocol: HTTP

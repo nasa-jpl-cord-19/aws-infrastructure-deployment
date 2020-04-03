@@ -236,6 +236,48 @@ Conditions:
     - 'yes'
 
 Resources:
+  flowLogBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      LifecycleConfiguration:
+        Rules:
+          - Id: RemoveOlderThan
+            Status: Enabled
+            ExpirationInDays: '30'
+
+  flowLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref flowLogBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "delivery.logs.amazonaws.com"
+            Action:
+              - "s3:PutObject"
+            Resource:
+              - !Sub "${flowLogBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                "s3:x-amz-acl": "bucket-owner-full-control"
+          - Effect: Allow
+            Principal:
+              Service: "delivery.logs.amazonaws.com"
+            Action:
+              - "s3:GetBucketAcl"
+            Resource:
+              - !GetAtt flowLogBucket.Arn
+
+  flowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      LogDestination: !GetAtt flowLogBucket.Arn
+      LogDestinationType: s3
+      ResourceId: !Ref privateVpc
+      ResourceType: VPC
+      TrafficType: ALL
+
   privateVpc:
     Type: AWS::EC2::VPC
     Properties:
