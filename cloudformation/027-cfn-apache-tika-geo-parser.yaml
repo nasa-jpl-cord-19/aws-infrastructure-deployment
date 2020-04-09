@@ -72,23 +72,23 @@ Resources:
         - Key: ProjectName
           Value: !Ref ProjectName
 
-  # internalTargetGroup:
-  #   Type: AWS::ElasticLoadBalancingV2::TargetGroup
-  #   Properties:
-  #     Name: !Sub "internal-${ServiceName}"
-  #     HealthCheckIntervalSeconds: 60
-  #     HealthCheckPath: "/version"
-  #     HealthCheckTimeoutSeconds: 5
-  #     UnhealthyThresholdCount: 5
-  #     HealthyThresholdCount: 2
-  #     Port: 8182
-  #     Protocol: HTTP
-  #     TargetType: ip
-  #     VpcId: !ImportValue prod-vpc-PrivateVpcId
+  internalTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "internal-${ServiceName}"
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: "/version"
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 5
+      HealthyThresholdCount: 2
+      Port: 8182
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
 
-  #     Tags:
-  #       - Key: ProjectName
-  #         Value: !Ref ProjectName
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
 
   fargateSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -181,20 +181,20 @@ Resources:
       ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
       Priority: 270
 
-  # internalListenerRule:
-  #   Type: AWS::ElasticLoadBalancingV2::ListenerRule
-  #   Properties:
-  #     Actions:
-  #       - TargetGroupArn: !Ref internalTargetGroup
-  #         Order: 1
-  #         Type: forward
-  #     Conditions:
-  #       - Field: host-header
-  #         HostHeaderConfig:
-  #           Values:
-  #             - !Sub "${ServiceHostName}.internal"
-  #     ListenerArn: !ImportValue prod-general-infra-InternalLb-HttpListenerArn
-  #     Priority: 270
+  internalListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref internalTargetGroup
+          Order: 1
+          Type: forward
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Sub "${ServiceHostName}.internal"
+      ListenerArn: !ImportValue prod-general-infra-InternalLb-HttpListenerArn
+      Priority: 270
 
   taskDef:
     Type: AWS::ECS::TaskDefinition
@@ -326,7 +326,7 @@ Resources:
     Type: AWS::ECS::Service
     Properties:
       LaunchType: FARGATE
-      ServiceName: !Ref ServiceName
+      ServiceName: !Sub "${ServiceName}-1"
       Cluster: !ImportValue prod-general-infra-EcsCluster
       SchedulingStrategy: REPLICA
       DesiredCount: !Ref DesiredServices
@@ -356,9 +356,9 @@ Resources:
         - TargetGroupArn: !Ref targetGroupExternalBrowser
           ContainerPort: 8182
           ContainerName: !Ref ServiceName
-        # - TargetGroupArn: !Ref internalTargetGroup
-        #   ContainerPort: 8182
-        #   ContainerName: !Ref ServiceName
+        - TargetGroupArn: !Ref internalTargetGroup
+          ContainerPort: 8182
+          ContainerName: !Ref ServiceName
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
@@ -480,16 +480,16 @@ Resources:
       Name: !Ref ServiceHostName
       Type: A
 
-  # internalDnsRecord:
-  #   Type: AWS::Route53::RecordSet
-  #   Properties:
-  #     AliasTarget:
-  #       DNSName: !ImportValue prod-general-infra-InternalLb-DNSName
-  #       EvaluateTargetHealth: true
-  #       HostedZoneId: !ImportValue prod-general-infra-InternalLb-HostedZoneId
-  #     HostedZoneId: !Ref InternalRoute53HostedZoneId
-  #     Name: !Sub "${ServiceHostName}.internal"
-  #     Type: A
+  internalDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !ImportValue prod-general-infra-InternalLb-DNSName
+        EvaluateTargetHealth: true
+        HostedZoneId: !ImportValue prod-general-infra-InternalLb-HostedZoneId
+      HostedZoneId: !Ref InternalRoute53HostedZoneId
+      Name: !Sub "${ServiceHostName}.internal"
+      Type: A
 
 
   cognitoAppClient:
