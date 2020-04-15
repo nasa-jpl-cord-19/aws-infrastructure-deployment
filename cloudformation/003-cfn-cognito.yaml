@@ -9,10 +9,16 @@ Resources:
       AdminCreateUserConfig: 
         AllowAdminCreateUserOnly: true
         InviteMessageTemplate:
-          EmailMessage: |
-            Welcome to covid19data.space tools
-            Your username is {username} and temporary password is {####}.
-          EmailSubject: "Your temporary password for covid19 data kibana"
+          EmailMessage: >-
+            Welcome to covid19data.space tools!
+            Your credentials are as follows:
+
+            username: {username} 
+            password: {####}
+
+            Please contact philip.southam@jpl.nasa.gov with any questions or concerns regarding your login.
+            Thank You.
+          EmailSubject: "Your temporary password for covid19.data tools"
       AutoVerifiedAttributes:
         - email
       # EnabledMfas:
