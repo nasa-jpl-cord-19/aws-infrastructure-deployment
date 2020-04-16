@@ -159,7 +159,7 @@ Resources:
             Values:
               - !Ref ServiceHostName
       ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
-      Priority: 271
+      Priority: 281
 
   listenerRuleExternalApi:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
