@@ -238,7 +238,7 @@ Resources:
               Protocol: tcp
           Privileged: false
           ReadonlyRootFilesystem: false
-      Cpu: 4096
+      Cpu: 256
       ExecutionRoleArn: !GetAtt taskExecutionRole.Arn
       Memory: 24576
       NetworkMode: "awsvpc"
