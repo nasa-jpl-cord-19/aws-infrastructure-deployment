@@ -41,7 +41,7 @@ Resources:
   targetGroupExternalApi:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub "external-api-${ServiceName}"
+      Name: !Sub "external-browser-${ServiceName}"
       HealthCheckIntervalSeconds: 10
       HealthCheckPath: "/"
       HealthCheckTimeoutSeconds: 5
