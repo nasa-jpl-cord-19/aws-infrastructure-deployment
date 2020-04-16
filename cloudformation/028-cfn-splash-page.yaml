@@ -1,0 +1,441 @@
+AWSTemplateFormatVersion : '2010-09-09'
+Description: "Splash Landing Page for all apps"
+
+Parameters:
+  ProjectName:
+    Type: String
+  AuthImageUri:
+    Type: String
+  CognitoClientId:
+    Type: String
+  CognitoClientSecret:
+    Type: String
+    NoEcho: true
+  ImageUri:
+    Type: String
+  ServiceName:
+    Type: String
+  ServiceHostName:
+    Type: String
+  Route53HostedZoneId:
+    Type: String
+  InternalRoute53HostedZoneId:
+    Type: String
+  S3PrefixListId:
+    Type: String
+    Description: Vpc access to S3, obtained with "aws  --profile <your-profile> --region us-east-1 ec2 describe-prefix-lists"
+  MinServices:
+    Type: Number
+  MaxServices:
+    Type: Number
+  DesiredServices:
+    Type: Number
+
+Resources:
+  logGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${ProjectName}/${AWS::StackName}"
+      RetentionInDays: 14
+
+  targetGroupExternalApi:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "external-api-${ServiceName}"
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: "/fd888239-5bf8-4e6d-a523-f0ca5a34479c/status"
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 5
+      HealthyThresholdCount: 2
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  targetGroupExternalBrowser:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "external-browser-${ServiceName}"
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: "/version"
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 5
+      HealthyThresholdCount: 2
+      Port: 8182
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  internalTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "internal-${ServiceName}"
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: "/version"
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 5
+      HealthyThresholdCount: 2
+      Port: 8182
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  fargateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: security group applied to containers
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      SecurityGroupIngress:
+        - IpProtocol: 'tcp'
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+          Description: Allow access from external facing lb to api auth sidecar
+        - IpProtocol: 'tcp'
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !ImportValue prod-general-infra-InternalLb-SecurityGroupId
+          Description: Allow access from internal facing lb to api auth sidecar
+        - IpProtocol: 'tcp'
+          FromPort: 8182
+          ToPort: 8182
+          SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+          Description: Allow access from external facing lb to app after browser authentication
+        - IpProtocol: 'tcp'
+          FromPort: 8182
+          ToPort: 8182
+          SourceSecurityGroupId: !ImportValue prod-general-infra-InternalLb-SecurityGroupId
+          Description: Allow access from internal facing lb to app without auth
+      SecurityGroupEgress:
+        - FromPort: 443
+          ToPort: 443
+          IpProtocol: 'tcp'
+          CidrIp: '0.0.0.0/0'
+          Description: Needs to allow access to cognito endpoint for jwt stuff and there is no vpc endpoint yet
+        - FromPort: 443
+          ToPort: 443
+          IpProtocol: 'tcp'
+          DestinationPrefixListId: !Ref S3PrefixListId
+          Description: Allow outbound to S3
+        - FromPort: 80
+          ToPort: 80
+          IpProtocol: 'tcp'
+          DestinationPrefixListId: !Ref S3PrefixListId
+          Description: Allow outbound to S3
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  listenerRuleExternalBrowser:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: authenticate-cognito
+          Order: 1
+          AuthenticateCognitoConfig: 
+            OnUnauthenticatedRequest: authenticate
+            Scope: openid
+            SessionCookieName: AWSELBAuthSessionCookie
+            SessionTimeout: 28800
+            UserPoolArn: !ImportValue prod-auth-Cognito-UserPoolArn
+            UserPoolDomain: !ImportValue prod-auth-Cognito-UserPoolDomain
+            UserPoolClientId: !Ref cognitoAppClient
+        - TargetGroupArn: !Ref targetGroupExternalBrowser
+          Order: 2
+          Type: forward
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Ref ServiceHostName
+      ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
+      Priority: 271
+
+  listenerRuleExternalApi:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref targetGroupExternalApi
+          Order: 1
+          Type: forward
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Ref ServiceHostName
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: Authorization
+            Values:
+              - "Bearer *"
+      ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
+      Priority: 270
+
+  internalListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref internalTargetGroup
+          Order: 1
+          Type: forward
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Sub "${ServiceHostName}.internal"
+      ListenerArn: !ImportValue prod-general-infra-InternalLb-HttpListenerArn
+      Priority: 270
+
+  taskDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+          - Name: "splash-page"
+          Essential: true
+          Image: !Ref ImageUri
+          LinuxParameters:
+            # https://docs.docker.com/engine/reference/run/#runtime-privilege-and-linux-capabilities
+            Capabilities:
+              ## Fargate does not allow adding Linux Capabilities. :-(
+              # Add:
+              #   - "CHOWN"
+              #   - "SETGID"
+              #   - "SETUID"
+              #   - "NET_BIND_SERVICE"
+              # Drop:
+              #   - "ALL"
+              Drop:
+                - SETPCAP
+                - MKNOD
+                - AUDIT_WRITE
+                - NET_RAW
+                - DAC_OVERRIDE
+                - FOWNER
+                - FSETID
+                - KILL
+                - SYS_CHROOT
+                - SETFCAP
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref logGroup
+              awslogs-stream-prefix: openieui
+          MemoryReservation: 512
+          PortMappings:
+            - ContainerPort: 443
+              HostPort: 443
+              Protocol: tcp
+          Privileged: false
+          ReadonlyRootFilesystem: false
+      Cpu: 4096
+      ExecutionRoleArn: !GetAtt taskExecutionRole.Arn
+      Memory: 24576
+      NetworkMode: "awsvpc"
+      RequiresCompatibilities: 
+        - FARGATE
+      TaskRoleArn: !GetAtt taskRole.Arn
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  fargateService:
+    Type: AWS::ECS::Service
+    Properties:
+      LaunchType: FARGATE
+      ServiceName: !Sub "${ServiceName}-1"
+      Cluster: !ImportValue prod-general-infra-EcsCluster
+      SchedulingStrategy: REPLICA
+      DesiredCount: !Ref DesiredServices
+      TaskDefinition: !Ref taskDef
+      HealthCheckGracePeriodSeconds: 90
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: 
+            - Fn::Select:
+              - 0
+              - Fn::Split:
+                - ','
+                - Fn::ImportValue: prod-vpc-PrivateSubnetIds
+            - Fn::Select:
+              - 5
+              - Fn::Split:
+                - ','
+                - Fn::ImportValue: prod-vpc-PrivateSubnetIds
+          SecurityGroups:
+            - !Ref fargateSecurityGroup
+            - !ImportValue "prod-vpc-Ec2EcsHostDefaultSecurityGroup"
+      LoadBalancers:
+        - TargetGroupArn: !Ref targetGroupExternalApi
+          ContainerPort: 80
+          ContainerName: auth-sidecar
+        - TargetGroupArn: !Ref targetGroupExternalBrowser
+          ContainerPort: 8182
+          ContainerName: !Ref ServiceName
+        - TargetGroupArn: !Ref internalTargetGroup
+          ContainerPort: 8182
+          ContainerName: !Ref ServiceName
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  taskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /am-taskexecuton-role/
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Security_Boundary_NoIAM"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service: "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "auth_ecr"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Resource: "*"
+                Action:
+                  - "secretsmanager:GetSecretValue"
+                  - "kms:Decrypt"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  taskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /am-taskexecuton-role/
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Security_Boundary_NoIAM"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service: "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  autoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /am-taskexecuton-role/
+      PermissionsBoundary: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/Security_Boundary_NoIAM"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service: "application-autoscaling.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: service-autoscaling
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "application-autoscaling:*"
+                  - "cloudwatch:DescribeAlarms"
+                  - "cloudwatch:PutMetricAlarm"
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - "ecs:DescribeServices"
+                  - "ecs:UpdateService"
+                Resource: !Ref fargateService
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+
+  autoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: !Ref MaxServices
+      MinCapacity: !Ref MinServices
+      ResourceId: !Join ["/", [service, !ImportValue prod-general-infra-EcsCluster, !GetAtt [fargateService, Name]]]
+      RoleARN: !GetAtt autoScalingRole.Arn
+      ScalableDimension: "ecs:service:DesiredCount"
+      ServiceNamespace: ecs
+
+  autoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Join ['', [!ImportValue prod-general-infra-EcsCluster, AutoScalingPolicy]]
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref autoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 10
+        ScaleOutCooldown: 3
+        # Keep things at or lower than n% CPU utilization
+        TargetValue: 75
+
+  dnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !ImportValue prod-general-infra-Lb-DNSName
+        EvaluateTargetHealth: true
+        HostedZoneId: !ImportValue prod-general-infra-Lb-HostedZoneId
+      HostedZoneId: !Ref Route53HostedZoneId
+      Name: !Ref ServiceHostName
+      Type: A
+
+  internalDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !ImportValue prod-general-infra-InternalLb-DNSName
+        EvaluateTargetHealth: true
+        HostedZoneId: !ImportValue prod-general-infra-InternalLb-HostedZoneId
+      HostedZoneId: !Ref InternalRoute53HostedZoneId
+      Name: !Sub "${ServiceHostName}.internal"
+      Type: A
+
+
+  cognitoAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties: 
+      ClientName: !Sub '${AWS::StackName} ALB'
+      ExplicitAuthFlows: 
+        - USER_PASSWORD_AUTH
+      GenerateSecret: True
+      RefreshTokenValidity: 1
+      UserPoolId: !ImportValue prod-auth-Cognito-UserPoolId
+      ReadAttributes: 
+        - email
+      AllowedOAuthFlows: 
+        - code
+      AllowedOAuthScopes: 
+        - openid
+      SupportedIdentityProviders: 
+        - COGNITO
+      AllowedOAuthFlowsUserPoolClient: True
+      CallbackURLs: 
+        - !Sub "https://${ServiceHostName}/oauth2/idpresponse"
