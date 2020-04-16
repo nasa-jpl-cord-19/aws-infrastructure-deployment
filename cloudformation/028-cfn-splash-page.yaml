@@ -55,22 +55,6 @@ Resources:
         - Key: ProjectName
           Value: !Ref ProjectName
 
-  targetGroupExternalBrowser:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      Name: !Sub "external-browser-${ServiceName}"
-      HealthCheckIntervalSeconds: 10
-      HealthCheckPath: "/version"
-      HealthCheckTimeoutSeconds: 5
-      UnhealthyThresholdCount: 5
-      HealthyThresholdCount: 2
-      Port: 8182
-      Protocol: HTTP
-      TargetType: ip
-      VpcId: !ImportValue prod-vpc-PrivateVpcId
-      Tags:
-        - Key: ProjectName
-          Value: !Ref ProjectName
 
 
   fargateSecurityGroup:
