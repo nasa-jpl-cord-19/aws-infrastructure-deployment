@@ -72,23 +72,6 @@ Resources:
         - Key: ProjectName
           Value: !Ref ProjectName
 
-  internalTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      Name: !Sub "internal-${ServiceName}"
-      HealthCheckIntervalSeconds: 60
-      HealthCheckPath: "/version"
-      HealthCheckTimeoutSeconds: 5
-      UnhealthyThresholdCount: 5
-      HealthyThresholdCount: 2
-      Port: 8182
-      Protocol: HTTP
-      TargetType: ip
-      VpcId: !ImportValue prod-vpc-PrivateVpcId
-
-      Tags:
-        - Key: ProjectName
-          Value: !Ref ProjectName
 
   fargateSecurityGroup:
     Type: AWS::EC2::SecurityGroup
