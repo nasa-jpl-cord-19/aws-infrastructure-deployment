@@ -43,7 +43,7 @@ Resources:
     Properties:
       Name: !Sub "external-api-${ServiceName}"
       HealthCheckIntervalSeconds: 10
-      HealthCheckPath: "/fd888239-5bf8-4e6d-a523-f0ca5a34479c/status"
+      HealthCheckPath: "/"
       HealthCheckTimeoutSeconds: 5
       UnhealthyThresholdCount: 5
       HealthyThresholdCount: 2
