@@ -200,7 +200,7 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       ContainerDefinitions:
-          - Name: "splash-page"
+        - Name: !Ref ServiceName
           Essential: true
           Image: !Ref ImageUri
           LinuxParameters:
