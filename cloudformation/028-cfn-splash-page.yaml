@@ -279,12 +279,6 @@ Resources:
       LoadBalancers:
         - TargetGroupArn: !Ref targetGroupExternalApi
           ContainerPort: 80
-          ContainerName: auth-sidecar
-        - TargetGroupArn: !Ref targetGroupExternalBrowser
-          ContainerPort: 8182
-          ContainerName: !Ref ServiceName
-        - TargetGroupArn: !Ref internalTargetGroup
-          ContainerPort: 8182
           ContainerName: !Ref ServiceName
       Tags:
         - Key: ProjectName
