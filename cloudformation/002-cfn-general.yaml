@@ -154,9 +154,9 @@ Resources:
       RepositoryName: auth-sidecar
 
   splashpageEcr:
-    Type: AWS::ECS::Repository
+    Type: AWS::ECR::Repository
     Properties:
-      RespositoryName: splash-page
+      RepositoryName: splash-page
 
   ecsCluster:
     Type: AWS::ECS::Cluster
