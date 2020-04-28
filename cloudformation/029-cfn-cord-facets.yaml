@@ -4,6 +4,8 @@ Description: "Splash Landing Page for all apps"
 Parameters:
   ProjectName:
     Type: String
+  AuthImageUri:
+    Type: String
   ImageUri:
     Type: String
   ServiceName:
@@ -29,6 +31,23 @@ Resources:
       LogGroupName: !Sub "/ecs/${ProjectName}/${AWS::StackName}"
       RetentionInDays: 14
 
+  targetGroupEsProxy:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "external-es-proxy-${ServiceName}"
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: "/fd888239-5bf8-4e6d-a523-f0ca5a34479c/status"
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 5
+      HealthyThresholdCount: 2
+      Port: 8182
+      Protocol: HTTP
+      TargetType: ip
+      VpcId: !ImportValue prod-vpc-PrivateVpcId
+      Tags:
+        - Key: ProjectName
+          Value: !Ref ProjectName
+  
   targetGroupExternalBrowser:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -57,7 +76,17 @@ Resources:
           ToPort: 80
           SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
           Description: Allow access from external facing lb
+        - IpProtocol: 'tcp'
+          FromPort: 8182
+          ToPort: 8182
+          SourceSecurityGroupId: !ImportValue prod-general-infra-Lb-SecurityGroupId
+          Description: Allow access from external facing lb
       SecurityGroupEgress:
+        - FromPort: 443
+          ToPort: 443
+          IpProtocol: 'tcp'
+          DestinationSecurityGroupId: !ImportValue prod-elastic-ESCluster-SecurityGroupId
+          Description: Allow outbound access to ES
         - FromPort: 443
           ToPort: 443
           IpProtocol: 'tcp'
@@ -72,12 +101,32 @@ Resources:
         - Key: ProjectName
           Value: !Ref ProjectName
 
+  fargateToEsIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Ingress from the fargate kibana host
+      GroupId: !ImportValue prod-elastic-ESCluster-SecurityGroupId
+      IpProtocol: 6
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !GetAtt fargateSecurityGroup.GroupId
+
   listenerRuleExternalBrowser:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       Actions:
-        - TargetGroupArn: !Ref targetGroupExternalBrowser
+        - Type: authenticate-cognito
           Order: 1
+          AuthenticateCognitoConfig: 
+            OnUnauthenticatedRequest: authenticate
+            Scope: openid
+            SessionCookieName: AWSELBAuthSessionCookie
+            SessionTimeout: 28800
+            UserPoolArn: !ImportValue prod-auth-Cognito-UserPoolArn
+            UserPoolDomain: !ImportValue prod-auth-Cognito-UserPoolDomain
+            UserPoolClientId: !Ref cognitoAppClient
+        - TargetGroupArn: !Ref targetGroupExternalBrowser
+          Order: 2
           Type: forward
       Conditions:
         - Field: host-header
@@ -85,7 +134,36 @@ Resources:
             Values:
               - !Ref ServiceHostName
       ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
-      Priority: 291
+      Priority: 296
+
+  listenerRuleEsProxy:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: authenticate-cognito
+          Order: 1
+          AuthenticateCognitoConfig: 
+            OnUnauthenticatedRequest: authenticate
+            Scope: openid
+            SessionCookieName: AWSELBAuthSessionCookie
+            SessionTimeout: 28800
+            UserPoolArn: !ImportValue prod-auth-Cognito-UserPoolArn
+            UserPoolDomain: !ImportValue prod-auth-Cognito-UserPoolDomain
+            UserPoolClientId: !Ref cognitoAppClient
+        - TargetGroupArn: !Ref targetGroupEsProxy
+          Order: 2
+          Type: forward
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Ref ServiceHostName
+        - Field: path-pattern
+          PathPatternConfig:
+            Values:
+              - "/cord/*"
+      ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
+      Priority: 295
 
   taskDef:
     Type: AWS::ECS::TaskDefinition
@@ -122,13 +200,51 @@ Resources:
               awslogs-region: !Ref AWS::Region
               awslogs-group: !Ref logGroup
               awslogs-stream-prefix: !Ref ServiceName
-          MemoryReservation: 512
           PortMappings:
             - ContainerPort: 80
               HostPort: 80
               Protocol: tcp
           Privileged: false
           ReadonlyRootFilesystem: false
+        - Name: auth-sidecar
+          Essential: true
+          Image: !Ref AuthImageUri
+          LinuxParameters:
+            Capabilities:
+              Drop:
+                - SETPCAP
+                - MKNOD
+                - AUDIT_WRITE
+                - NET_RAW
+                - DAC_OVERRIDE
+                - FOWNER
+                - FSETID
+                - KILL
+                - SYS_CHROOT
+                - SETFCAP
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref logGroup
+              awslogs-stream-prefix: auth-sidecar
+          PortMappings:
+            - ContainerPort: 8182
+              HostPort: 8182
+              Protocol: tcp
+          Privileged: false
+          ReadonlyRootFilesystem: false
+          Environment:
+            - Name: LISTEN_PORT
+              Value: "8182"
+            - Name: AUTH_ENABLED
+              Value: "no"
+            - Name: APP_PORT
+              Value: "443"
+            - Name: APP_HOST
+              Value: "vpc-prod-elastic-7bkmew5nbhb6i2zt3vbz2bpb5u.us-east-1.es.amazonaws.com"
+            - Name: APP_PROTOCOL
+              Value: "https"
       Cpu: 256
       ExecutionRoleArn: !GetAtt taskExecutionRole.Arn
       Memory: 512
@@ -144,12 +260,12 @@ Resources:
     Type: AWS::ECS::Service
     Properties:
       LaunchType: FARGATE
-      ServiceName: !Ref ServiceName
+      ServiceName: !Sub "${ServiceName}-2"
       Cluster: !ImportValue prod-general-infra-EcsCluster
       SchedulingStrategy: REPLICA
       DesiredCount: !Ref DesiredServices
       TaskDefinition: !Ref taskDef
-      HealthCheckGracePeriodSeconds: 90
+      HealthCheckGracePeriodSeconds: 210
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -171,6 +287,9 @@ Resources:
         - TargetGroupArn: !Ref targetGroupExternalBrowser
           ContainerPort: 80
           ContainerName: !Ref ServiceName
+        - TargetGroupArn: !Ref targetGroupEsProxy
+          ContainerPort: 8182
+          ContainerName: auth-sidecar
       Tags:
         - Key: ProjectName
           Value: !Ref ProjectName
@@ -291,3 +410,24 @@ Resources:
       HostedZoneId: !Ref Route53HostedZoneId
       Name: !Ref ServiceHostName
       Type: A
+
+  cognitoAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties: 
+      ClientName: !Sub '${AWS::StackName} ALB'
+      ExplicitAuthFlows: 
+        - USER_PASSWORD_AUTH
+      GenerateSecret: True
+      RefreshTokenValidity: 1
+      UserPoolId: !ImportValue prod-auth-Cognito-UserPoolId
+      ReadAttributes: 
+        - email
+      AllowedOAuthFlows: 
+        - code
+      AllowedOAuthScopes: 
+        - openid
+      SupportedIdentityProviders: 
+        - COGNITO
+      AllowedOAuthFlowsUserPoolClient: True
+      CallbackURLs: 
+        - !Sub "https://${ServiceHostName}/oauth2/idpresponse"
