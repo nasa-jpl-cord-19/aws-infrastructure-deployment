@@ -158,6 +158,11 @@ Resources:
     Properties:
       RepositoryName: splash-page
 
+  cordFacetsEcr:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: cord-facets
+
   ecsCluster:
     Type: AWS::ECS::Cluster
     Properties: 
@@ -283,11 +288,18 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
-        - Type: fixed-response
-          FixedResponseConfig:
-            ContentType: text/plain
-            MessageBody: "not the droids you're looking for"
-            StatusCode: "200"
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            StatusCode: HTTP_302
+            Port: 443
+            Host: !Sub "www.${DefaultDomain}"
+
+        # - Type: fixed-response
+        #   FixedResponseConfig:
+        #     ContentType: text/plain
+        #     MessageBody: "not the droids you're looking for"
+        #     StatusCode: "200"
       LoadBalancerArn: !Ref lb
       Port: 443
       Protocol: HTTPS

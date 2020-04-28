@@ -85,7 +85,7 @@ Resources:
             Values:
               - !Ref ServiceHostName
       ListenerArn: !ImportValue prod-general-infra-Lb-HttpsListenerArn
-      Priority: 281
+      Priority: 291
 
   taskDef:
     Type: AWS::ECS::TaskDefinition
